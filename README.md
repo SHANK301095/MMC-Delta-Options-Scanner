@@ -1,0 +1,126 @@
+# MMC Delta Options Scanner
+
+Delta Exchange India ke **BTC / ETH options** ka live scanner — option chain,
+theta decay, IV skew, payoff builder aur model-free arbitrage checks, sab ek
+Streamlit app mein.
+
+**Poori tarah read-only.** Koi API key nahi, koi secret nahi, koi order-placement
+code nahi. App sirf Delta ke do public endpoints padhta hai (`/v2/products` aur
+`/v2/tickers`) — aur CI har push par machine se ye verify karta hai
+([`tests/check_read_only.py`](tests/check_read_only.py)).
+
+---
+
+## Chalane ka tarika
+
+**Windows:** `RUN_MMC_SCANNER.bat` par double-click.
+**Linux / macOS:** `./run_scanner.sh`
+
+Dono pehli baar khud hi `.venv` banayenge, libraries install karenge aur browser
+mein `http://localhost:8501` khol denge. Pehli baar 2-4 minute, uske baad
+~10 second.
+
+Manual chalana ho to:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Detailed setup, module-by-module guide aur troubleshooting:
+**[README_SETUP.md](README_SETUP.md)**
+
+---
+
+## Modules
+
+| Page | Kya karta hai |
+|---|---|
+| 🏠 **Home** | Expiry snapshot, PCR, chain-health badge |
+| 📈 **Live Chain** | Call/Put chain, liquidity filter, OI profile, cost-of-trading table |
+| ⏳ **Theta Decay** | Repricing-based burn ranking, hour-by-hour curve, multi-leg basket |
+| 🌊 **IV Skew** | Volatility smile, 25Δ risk reversal / butterfly, term structure |
+| 🎯 **Payoff Builder** | 8 preset strategies, executable fills, expiry + T+0 curves |
+| 🔎 **Mispricing** | Put-call parity, vertical bounds, butterfly convexity, box spreads |
+
+---
+
+## Design decisions jo baaki screeners galat karte hain
+
+Ye teen cheezein is scanner ki asli value hain — inhi ke bina ek options tool
+chup-chaap galat numbers deta hai (crash nahi karta, jo aur khatarnak hai):
+
+**1. Fees NOTIONAL par lagti hain, premium par nahi.**
+Delta India: `fee = min(notional × rate, premium × cap) × (1 + GST)`.
+Iska seedha asar — sasti OTM options par round-trip cost premium ka ~8% hota
+hai, ATM par ~1.5%. Jo scanner ye ignore karta hai wo dead ₹1 strikes ko
+"best theta yield" bata dega. Har table mein **net of cost** column hai.
+
+**2. Mark price par koi fill nahi hota.**
+Default price basis "Realistic" hai — buy par ASK, sell par BID. Jis chain par
+chauthai strikes ka spread 20%+ ho, wahan mark-priced edge sirf kaagzi hai.
+
+**3. Theta ek instantaneous derivative hai, ek din ka burn nahi.**
+Har burn number option ko future timestamp par **dobara price karke** nikala
+jaata hai. Expiry ke din analytic theta aur asli burn mein 50%+ farak aata hai.
+
+Aur time-to-expiry hamesha **exact seconds** mein hai, whole days mein nahi —
+Delta India options 17:30 IST (12:00 UTC) par settle hote hain, aur whole-day
+rounding expiry din ka premium ~8x overstate kar deti hai.
+
+---
+
+## Units contract
+
+Har options bug yahin se shuru hota hai, isliye ek jagah likha hai:
+
+| Symbol | Unit |
+|---|---|
+| `S`, `K` | USD |
+| `T` | **years** (fraction) |
+| `sigma` | **decimal** (0.55 = 55%, not 55) |
+| `bs_price` output | USD **per 1 unit of underlying** (per BTC / per ETH) |
+| `theta` | USD **per day** |
+| `vega` | USD **per 1 vol point** (per 1%) |
+
+Per-lot value chahiye to `contract_value` se multiply karein
+(BTC options = 0.001 BTC, ETH = 0.01 ETH).
+
+App do cheezein **runtime par khud detect** karta hai, hard-code nahi karta:
+API ki IV percent mein hai ya decimal mein, aur API ke greeks per-unit hain ya
+per-lot. Dono ATM strikes ko dobara price karke decide hote hain — verdict
+har page ke **🩺 Diagnostics** expander mein dikhta hai.
+
+---
+
+## Development
+
+```bash
+pip install -r requirements.txt pytest
+python -m pytest tests/ -v          # 138 tests
+python tests/check_read_only.py     # read-only guard
+```
+
+Tests network ko chhoote bilkul nahi — sirf pure math aur parsing layer cover
+karte hain (Black-Scholes parity/greeks vs finite differences, fee cap
+behaviour, Delta ka mixed-type JSON parsing, aur payoff tail-risk).
+
+CI har push par Python 3.10 / 3.11 / 3.12 par yehi chalata hai.
+
+---
+
+## Kya is tool mein jaan-boojh kar NAHI hai
+
+- ❌ Koi API key ya secret — sirf public endpoints
+- ❌ Koi order placement — ye trade kar hi nahi sakta
+- ❌ Historical data / IV Rank / IV Percentile — history chahiye
+- ❌ Alerts / notifications
+- ❌ Cloud hosting — local-only tool
+- ❌ Perpetual futures basis / funding
+
+---
+
+*Read-only market data tool. Trading advice nahi. Fee defaults
+([`mmc_core/fees.py`](mmc_core/fees.py)) sidebar mein editable hain — live jaane
+se pehle https://www.delta.exchange/fees par verify kar lijiye.*
