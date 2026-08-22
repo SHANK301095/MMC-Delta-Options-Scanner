@@ -3,8 +3,12 @@ MMC Delta Scanner — Home
 ========================
 Run with:  streamlit run app.py
 
-Read-only scanner for Delta Exchange India BTC/ETH options.
-No API key. No secrets. No order placement code anywhere in this project.
+Delta Exchange India ke BTC/ETH options ka read-only scanner.
+Koi API key, koi secret, koi order-placement code — kahin nahi.
+
+Ye page ek hi kaam karta hai: chuni hui expiry ki halat ek nazar mein dikhana,
+taaki aap sahi module par jaayein. Isliye yahan number kam hain, aur har number
+ek faisle se juda hai.
 """
 
 from __future__ import annotations
@@ -13,12 +17,12 @@ import math
 
 import streamlit as st
 
-from mmc_core import delta_api as api
+from mmc_core import theme
 from mmc_core import ui_common as ui
 
 ui.page_setup(
     "Home",
-    "Delta Exchange India · BTC & ETH options · live market data · read-only",
+    "Delta Exchange India · BTC & ETH options · live · read-only",
     icon="🏠",
 )
 
@@ -34,10 +38,8 @@ if df is None:
 
 ui.render_context_header(settings, context, df)
 
-st.markdown("---")
-
 # --------------------------------------------------------------------------
-# Snapshot of the selected expiry
+# Expiry snapshot
 # --------------------------------------------------------------------------
 
 calls = df[df["is_call"]]
@@ -48,93 +50,91 @@ put_oi = float(puts["oi_contracts"].fillna(0).sum())
 pcr = (put_oi / call_oi) if call_oi > 0 else float("nan")
 
 spot = context["spot"]
-atm_row = df.iloc[(df["strike"] - spot).abs().argsort()[:1]] if not df.empty else None
-atm_strike = float(atm_row["strike"].iloc[0]) if atm_row is not None and len(atm_row) else float("nan")
+atm_strike = float("nan")
+if not df.empty:
+    atm_strike = float(df.iloc[(df["strike"] - spot).abs().argsort()[:1]]["strike"].iloc[0])
 
 atm_pair = df[df["strike"] == atm_strike] if not math.isnan(atm_strike) else df.iloc[0:0]
 atm_iv = float(atm_pair["iv_pct"].mean()) if not atm_pair.empty else float("nan")
-
-st.markdown("### 📌 Expiry Snapshot")
-s1, s2, s3, s4 = st.columns(4)
-s1.metric("ATM Strike", f"{atm_strike:,.0f}" if not math.isnan(atm_strike) else "—")
-s2.metric("ATM IV", f"{atm_iv:.1f}%" if not math.isnan(atm_iv) else "—")
-s3.metric("Put/Call OI Ratio", f"{pcr:.2f}" if not math.isnan(pcr) else "—")
-s4.metric("Total OI (contracts)", f"{call_oi + put_oi:,.0f}")
 
 liquid = df[df["two_sided"] & (df["spread_pct"] <= 25)]
 health_pct = (len(liquid) / len(df) * 100.0) if len(df) else 0.0
 
 if health_pct >= 50:
-    badge = '<span class="mmc-pill mmc-ok">CHAIN HEALTHY</span>'
+    health_tone, health_word = "good", "CHAIN HEALTHY"
 elif health_pct >= 20:
-    badge = '<span class="mmc-pill mmc-warn">THIN CHAIN</span>'
+    health_tone, health_word = "warn", "THIN CHAIN"
 else:
-    badge = '<span class="mmc-pill mmc-bad">VERY ILLIQUID</span>'
+    health_tone, health_word = "critical", "VERY ILLIQUID"
+
+st.markdown(theme.section("Expiry snapshot",
+                          f"{len(liquid)} of {len(df)} contracts tradable"),
+            unsafe_allow_html=True)
+
+st.markdown(theme.stat_row([
+    theme.stat("ATM strike",
+               f"{atm_strike:,.0f}" if not math.isnan(atm_strike) else "—"),
+    theme.stat("ATM IV", f"{atm_iv:.1f}%" if not math.isnan(atm_iv) else "—",
+               sub="dono sides ka average"),
+    theme.stat("Put/Call OI", f"{pcr:.2f}" if not math.isnan(pcr) else "—",
+               sub="1 se upar = put-heavy"),
+    theme.stat("Total OI", f"{call_oi + put_oi:,.0f}", sub="contracts"),
+]), unsafe_allow_html=True)
 
 st.markdown(
-    f"{badge} {len(liquid)} of {len(df)} contracts have a two-sided book "
-    f"with spread under 25% (**{health_pct:.0f}%**).",
+    theme.badge(health_word, health_tone)
+    + f'<span style="color:{theme.INK_3};font-size:0.82rem">'
+    f'two-sided book aur 25% se kam spread wale contracts: '
+    f'<b style="color:{theme.INK_2}">{health_pct:.0f}%</b></span>',
     unsafe_allow_html=True,
 )
 
 if health_pct < 20:
     st.warning(
-        "Is expiry par liquidity bahut kam hai. Aise chain par scanner ke "
+        "Is expiry par liquidity bahut kam hai. Aisi chain par scanner ke "
         "'opportunities' real nahi hote — order daalte hi spread kha jaata hai. "
-        "Nearest weekly/daily expiry try karein."
+        "Nearest weekly ya daily expiry try karein."
     )
-
-st.markdown("---")
 
 # --------------------------------------------------------------------------
-# Navigation
+# Modules
 # --------------------------------------------------------------------------
 
-st.markdown("### 🧭 Modules")
+st.markdown(theme.section("Modules", "left sidebar se switch kijiye"),
+            unsafe_allow_html=True)
 
-n1, n2 = st.columns(2)
-with n1:
-    st.markdown(
-        "#### 📈 Live Chain + Liquidity Filter\n"
-        "Call/Put side-by-side chain, dead strikes auto-hidden, "
-        "OI profile, aur poora **cost of trading** breakdown."
-    )
-    st.markdown(
-        "#### ⏳ Theta Decay Calculator\n"
-        "Repricing-based burn ranking, hour-by-hour curve, "
-        "multi-leg basket — sab **net of fees**."
-    )
-    st.markdown(
-        "#### 🌊 IV Skew & Term Structure\n"
-        "Volatility smile, 25Δ risk reversal / butterfly, "
-        "aur expiries ke aar-paar ATM IV curve."
-    )
-with n2:
-    st.markdown(
-        "#### 🎯 Payoff Builder\n"
-        "8 preset strategies, executable fills (ask/bid), "
-        "expiry + T+0 curves, break-evens, net greeks."
-    )
-    st.markdown(
-        "#### 🔎 Mispricing Scanner\n"
-        "Put-call parity, vertical bounds, butterfly convexity, "
-        "box spreads — model-free aur fee-adjusted."
-    )
-    st.markdown(
-        "#### ⚙️ Sidebar\n"
-        "Price basis, fee model, auto-refresh, "
-        "aur **Save** se settings agli baar bhi yaad rahengi."
-    )
+st.markdown(theme.card_grid([
+    theme.nav_card("📈", "Live Chain",
+                   "Call/Put chain side by side, dead strikes auto-hidden, "
+                   "OI profile aur poora cost-of-trading breakdown."),
+    theme.nav_card("⏳", "Theta Decay",
+                   "Repricing-based burn ranking, ghanta-ba-ghanta curve, "
+                   "aur multi-leg basket — sab net of fees."),
+    theme.nav_card("🌊", "IV Skew",
+                   "Volatility smile, 25Δ risk reversal aur butterfly, "
+                   "aur expiries ke aar-paar ATM IV curve."),
+    theme.nav_card("🎯", "Payoff Builder",
+                   "8 preset strategies, executable fills, expiry + T+0 "
+                   "curves, break-evens aur net greeks."),
+    theme.nav_card("🔎", "Mispricing",
+                   "Put-call parity, vertical bounds, butterfly convexity "
+                   "aur box spreads — model-free aur fee-adjusted."),
+    theme.nav_card("📐", "Delta Filter",
+                   "Delta band se strike chuniye, live bid/ask aur "
+                   "net-of-cost theta ke saath."),
+    theme.nav_card("🌡️", "Vol Regime",
+                   "VIX-style index, 30-din constant maturity, aur ek "
+                   "regime gate jo batata hai ki aapki condition poori hai ya nahi."),
+]), unsafe_allow_html=True)
 
-st.info("Left sidebar se page switch kijiye. Saari settings har page par "
-        "same rehti hain — ek baar set karke **💾 Save** dabaiye.")
+st.caption("Saari settings har page par same rehti hain — ek baar set karke "
+           "sidebar mein **Save** dabaiye.")
 
 ui.render_diagnostics(context, df, settings)
 
-st.markdown("---")
 st.caption(
-    "MMC Delta Scanner v2.0 · Data: api.india.delta.exchange public endpoints "
-    "· Read-only · Ye tool sirf market data dikhata hai, trading advice nahi."
+    "MMC Delta Scanner · Data: api.india.delta.exchange public endpoints · "
+    "Read-only · Ye tool sirf market data dikhata hai, trading advice nahi."
 )
 
 ui.maybe_auto_refresh(settings)

@@ -14,6 +14,7 @@ import streamlit as st
 
 from mmc_core import charts as ch
 from mmc_core import delta_api as api
+from mmc_core import theme
 from mmc_core import ui_common as ui
 
 ui.page_setup(
@@ -43,8 +44,12 @@ st.caption(f"🧹 Liquidity filter ne **{removed}** untradable contracts hataye 
            f"**{len(filtered)}** bache")
 
 if filtered.empty:
-    st.warning("Filter ke baad kuch nahi bacha. Sidebar mein spread limit badhaiye "
-               "ya strike range widen kijiye.")
+    st.markdown(theme.empty_state(
+        "🫙", "Filter ke baad kuch nahi bacha",
+        "Sidebar mein spread limit badhaiye, strike range widen kijiye, ya "
+        "two-sided book ki shart hataiye. Dhyan rahe — wo contracts practically "
+        "tradable nahi hote, isliye filter ne unhe hataya tha."
+    ), unsafe_allow_html=True)
     ui.render_diagnostics(context, df, settings)
     st.stop()
 
@@ -92,7 +97,7 @@ display.columns = [
     "P θ₹", "P Δ", "P IV%", "P Vol", "P OI",
 ]
 
-st.markdown("### 📊 Option Chain  ·  ⬅️ CALLS  |  PUTS ➡️")
+st.markdown(theme.section("Option chain", "⬅ CALLS  ·  PUTS ➡"), unsafe_allow_html=True)
 
 
 def _highlight(row):
@@ -103,18 +108,19 @@ def _highlight(row):
         return styles
 
     if not math.isnan(atm_strike) and abs(strike - atm_strike) < 1e-9:
-        return ["background-color: #1f3d5c; color: #ffffff; font-weight: 600"] * len(row)
+        return [f"background-color: {theme.SURFACE_3}; color: {theme.INK_1}; "
+                "font-weight: 650"] * len(row)
 
     n = len(row)
     strike_pos = list(row.index).index("STRIKE")
     if strike < spot:
         # Calls are ITM on this row -> shade the left block.
         for i in range(0, strike_pos):
-            styles[i] = "background-color: #14261c"
+            styles[i] = f"background-color: {theme.FILL_UP}"
     else:
         # Puts are ITM on this row -> shade the right block.
         for i in range(strike_pos + 1, n):
-            styles[i] = "background-color: #14261c"
+            styles[i] = f"background-color: {theme.FILL_DOWN}"
     return styles
 
 
@@ -131,7 +137,7 @@ for side in ("C", "P"):
 fmt["STRIKE"] = "{:,.0f}"
 
 styled = display.style.apply(_highlight, axis=1).format(fmt, na_rep="—")
-st.dataframe(styled, width='stretch', height=560)
+st.dataframe(styled, hide_index=True, width='stretch', height=theme.table_height(len(display), max_px=560))
 
 st.caption(
     "θ ₹/lot = ek lot ek din mein kitna premium khoyega (negative = buyer ka "
@@ -143,7 +149,7 @@ st.caption(
 # Open Interest profile
 # --------------------------------------------------------------------------
 
-st.markdown("### 🏔️ Open Interest Profile")
+st.markdown(theme.section("Open interest profile"), unsafe_allow_html=True)
 
 oi_frame = chain[["strike", "C_oi_contracts", "P_oi_contracts"]].fillna(0)
 st.plotly_chart(
@@ -156,23 +162,28 @@ st.plotly_chart(
 c_oi = filtered[filtered["is_call"]]["oi_contracts"].fillna(0)
 p_oi = filtered[~filtered["is_call"]]["oi_contracts"].fillna(0)
 
-m1, m2, m3 = st.columns(3)
-if not c_oi.empty and c_oi.sum() > 0:
-    top_call = filtered[filtered["is_call"]].loc[c_oi.idxmax(), "strike"]
-    m1.metric("Max Call OI strike", f"{top_call:,.0f}",
-              help="Aksar resistance / upper pin ke roop mein dekha jaata hai.")
-if not p_oi.empty and p_oi.sum() > 0:
-    top_put = filtered[~filtered["is_call"]].loc[p_oi.idxmax(), "strike"]
-    m2.metric("Max Put OI strike", f"{top_put:,.0f}",
-              help="Aksar support / lower pin ke roop mein dekha jaata hai.")
+top_call = (filtered[filtered["is_call"]].loc[c_oi.idxmax(), "strike"]
+            if not c_oi.empty and c_oi.sum() > 0 else float("nan"))
+top_put = (filtered[~filtered["is_call"]].loc[p_oi.idxmax(), "strike"]
+           if not p_oi.empty and p_oi.sum() > 0 else float("nan"))
 pcr = (p_oi.sum() / c_oi.sum()) if c_oi.sum() > 0 else float("nan")
-m3.metric("PCR (filtered)", f"{pcr:.2f}" if not math.isnan(pcr) else "—")
+
+st.markdown(theme.stat_row([
+    theme.stat("Max call OI",
+               f"{top_call:,.0f}" if not math.isnan(top_call) else "—",
+               sub="aksar upper pin"),
+    theme.stat("Max put OI",
+               f"{top_put:,.0f}" if not math.isnan(top_put) else "—",
+               sub="aksar lower pin"),
+    theme.stat("PCR (filtered)", f"{pcr:.2f}" if not math.isnan(pcr) else "—",
+               sub="1 se upar = put-heavy"),
+]), unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------
 # Data-quality warnings that actually matter for trading
 # --------------------------------------------------------------------------
 
-st.markdown("### ⚠️ Watch-outs on this chain")
+st.markdown(theme.section("Watch-outs on this chain"), unsafe_allow_html=True)
 
 warn_rows = []
 
@@ -198,7 +209,7 @@ if warn_rows:
 else:
     st.success("Filtered chain saaf hai — koi stale quote ya extreme spread nahi mila.")
 
-st.markdown("### 💸 Cost of Trading (fees + spread)")
+st.markdown(theme.section("Cost of trading", "fees + spread, per lot"), unsafe_allow_html=True)
 st.caption("Delta ki fee NOTIONAL par lagti hai (premium par nahi), phir "
            "premium ka cap lagta hai. Sasti OTM strikes par round-trip cost "
            "aksar premium ka bada hissa kha jaata hai.")
@@ -223,7 +234,7 @@ st.dataframe(
         "Gross θ %/day": "{:.2f}%", "Net θ %/day": "{:+.2f}%",
     }, na_rep="—").background_gradient(
         subset=["Net θ %/day"], cmap="RdYlGn"),
-    width="stretch", height=340,
+    hide_index=True, width="stretch", height=theme.table_height(len(cost_tbl), max_px=340),
 )
 
 neg = cost_tbl[cost_tbl["Net θ %/day"] < 0]
@@ -251,7 +262,7 @@ with st.expander("🔍 Full raw table (saare computed columns)"):
         "slippage_pct", "total_cost_pct", "net_theta_pct_day",
     ]
     raw_cols = [c for c in raw_cols if c in filtered.columns]
-    st.dataframe(filtered[raw_cols], width='stretch', height=380)
+    st.dataframe(filtered[raw_cols], hide_index=True, width='stretch', height=380)
 
     st.download_button(
         "⬇️ Download this chain as CSV",

@@ -21,6 +21,7 @@ from . import delta_api as api
 from . import options_math as om
 from . import fees as fx
 from . import settings_store as store
+from . import theme
 from . import volatility as vx
 
 UTC = timezone.utc
@@ -69,27 +70,6 @@ def _bootstrap_settings() -> None:
             st.session_state[key] = val
     st.session_state["_mmc_bootstrapped"] = True
 
-MMC_CSS = """
-<style>
-  .mmc-band {
-      padding: 0.85rem 1.1rem; border-radius: 10px; margin-bottom: 0.9rem;
-      background: linear-gradient(90deg, #0f2027 0%, #203a43 55%, #2c5364 100%);
-      color: #ffffff;
-  }
-  .mmc-band h1 { font-size: 1.35rem; margin: 0 0 0.15rem 0; color: #ffffff; }
-  .mmc-band p  { font-size: 0.83rem; margin: 0; color: #cfe3ec; }
-  .mmc-pill {
-      display:inline-block; padding: 2px 9px; border-radius: 999px;
-      font-size: 0.72rem; font-weight: 600; margin-right: 6px;
-  }
-  .mmc-ok   { background:#0f5132; color:#d1e7dd; }
-  .mmc-warn { background:#664d03; color:#fff3cd; }
-  .mmc-bad  { background:#58151c; color:#f8d7da; }
-  div[data-testid="stMetricValue"] { font-size: 1.25rem; }
-</style>
-"""
-
-
 # --------------------------------------------------------------------------
 # Page chrome
 # --------------------------------------------------------------------------
@@ -98,12 +78,8 @@ def page_setup(title: str, subtitle: str, icon: str = "📊") -> None:
     _bootstrap_settings()
     st.set_page_config(page_title=f"MMC · {title}", page_icon=icon,
                        layout="wide", initial_sidebar_state="expanded")
-    st.markdown(MMC_CSS, unsafe_allow_html=True)
-    st.markdown(
-        f'<div class="mmc-band"><h1>{icon} MMC Delta Scanner — {title}</h1>'
-        f'<p>{subtitle}</p></div>',
-        unsafe_allow_html=True,
-    )
+    theme.inject(st)
+    st.markdown(theme.app_bar(icon, title, subtitle), unsafe_allow_html=True)
 
 
 def _ss(key):
@@ -132,9 +108,43 @@ def load_products():
 # Sidebar
 # --------------------------------------------------------------------------
 
+# (script path, label, icon) — icons module cards se match karte hain, taaki
+# home page par jo dikha wahi sidebar mein pehchana jaaye.
+NAV = [
+    ("app.py", "Home", "🏠"),
+    ("pages/1_Live_Chain.py", "Live Chain", "📈"),
+    ("pages/2_Theta_Decay.py", "Theta Decay", "⏳"),
+    ("pages/3_IV_Skew.py", "IV Skew", "🌊"),
+    ("pages/4_Payoff_Builder.py", "Payoff Builder", "🎯"),
+    ("pages/5_Mispricing.py", "Mispricing", "🔎"),
+    ("pages/6_Delta_Filter.py", "Delta Filter", "📐"),
+    ("pages/7_Vol_Regime.py", "Vol Regime", "🌡️"),
+]
+
+
+def render_nav() -> None:
+    """Apna sidebar nav.
+
+    Streamlit ka built-in nav labels filename se banata hai, isliye home page
+    "app" dikhta hai aur baaki "1_Live_Chain" jaise. CSS use chhupa deti hai
+    aur ye function poore naam aur wahi icons deta hai jo home page ke module
+    cards par hain.
+    """
+    st.sidebar.markdown(theme.side_head("Modules"), unsafe_allow_html=True)
+    for path, label, icon in NAV:
+        try:
+            st.sidebar.page_link(path, label=label, icon=icon)
+        except Exception:
+            # Page link ek naye Streamlit par hi milta hai; na mile to nav
+            # chhod dijiye - baaki app isse rukna nahi chahiye.
+            break
+
+
 def render_global_sidebar(products: pd.DataFrame) -> dict:
     """Draw the shared sidebar and return the resolved settings dict."""
-    st.sidebar.markdown("### ⚙️ Scanner Settings")
+    render_nav()
+
+    st.sidebar.markdown(theme.side_head("Market"), unsafe_allow_html=True)
 
     underlyings = api.list_underlyings(products)
     if not underlyings:
@@ -163,7 +173,7 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
     expiry = expiries[labels.index(chosen_label)]
     st.session_state["expiry_api_date"] = expiry["api_date"]
 
-    st.sidebar.markdown("---")
+    st.sidebar.markdown(theme.side_head("Data"), unsafe_allow_html=True)
 
     refresh_seconds = st.sidebar.select_slider(
         "Data refresh window (sec)",
@@ -181,6 +191,8 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
              "Ye manual hai — koi extra API dependency nahi.",
     )
     st.session_state["usdinr"] = usdinr
+
+    st.sidebar.markdown(theme.side_head("Pricing"), unsafe_allow_html=True)
 
     price_mode = st.sidebar.radio(
         "Price basis", PRICE_MODES, key="price_basis_pick",
@@ -258,7 +270,7 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
         )
         st.session_state["greeks_source"] = greeks_source
 
-    st.sidebar.markdown("---")
+    st.sidebar.markdown(theme.side_head("Session"), unsafe_allow_html=True)
 
     auto_refresh = st.sidebar.checkbox(
         "\u23f1\ufe0f Auto-refresh", value=bool(_ss("auto_refresh")),
@@ -293,8 +305,10 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
             st.session_state.pop("_mmc_bootstrapped", None)
             st.rerun()
 
-    st.sidebar.caption("\U0001f512 Read-only build \u2014 is project mein koi API "
-                       "key, secret ya order-placement code nahi hai.")
+    st.sidebar.markdown(
+        theme.badge("READ-ONLY BUILD", "good"), unsafe_allow_html=True)
+    st.sidebar.caption("Koi API key, secret ya order-placement code nahi — "
+                       "CI har push par ise verify karta hai.")
 
     return {
         "underlying": underlying,
@@ -683,12 +697,23 @@ def render_context_header(settings: dict, context: dict, df: pd.DataFrame) -> No
     spot = context["spot"]
     seconds_left = om.seconds_to_expiry(context["now"], context["expiry_utc"])
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric(f"{settings['underlying']} Spot", f"${spot:,.1f}")
-    c2.metric("Expiry (IST)", api.fmt_ist(context["expiry_utc"]))
-    c3.metric("Time left", api.humanize_countdown(seconds_left))
-    c4.metric("Strikes live", f"{int(df['strike'].nunique())}")
-    c5.metric("Lot size", f"{context['contract_value']:g} {settings['underlying']}")
+    # Countdown ko alag rang milta hai kyunki expiry ke aakhri ghanton mein
+    # baaki har number ka matlab badal jaata hai - decay tez, gamma khatarnak,
+    # spreads chaude. Wo halat headline par dikhni chahiye, diagnostics mein
+    # dhoondhni nahi padni chahiye.
+    urgent = 0 < seconds_left < 6 * 3600
+
+    st.markdown(theme.stat_row([
+        theme.stat(f"{settings['underlying']} Spot", f"${spot:,.1f}", accent=True),
+        theme.stat("Time left", api.humanize_countdown(seconds_left),
+                   sub=api.fmt_ist(context["expiry_utc"]),
+                   tone="down" if urgent else ""),
+        theme.stat("Strikes live", f"{int(df['strike'].nunique())}",
+                   sub=f"{len(df)} contracts"),
+        theme.stat("Lot size",
+                   f"{context['contract_value']:g} {settings['underlying']}",
+                   sub=f"₹ @ {settings['usdinr']:.2f}/USD"),
+    ]), unsafe_allow_html=True)
 
 
 def render_diagnostics(context: dict, df: pd.DataFrame, settings: dict) -> None:
@@ -748,7 +773,8 @@ def render_liquidity_controls(prefix: str = "",
     include_delta=False jab page khud, apne upar, ek bada delta control dikha
     raha ho — do jagah ek hi filter rakhna sirf confusion paida karta hai.
     """
-    st.sidebar.markdown("### 💧 Liquidity Filter")
+    st.sidebar.markdown(theme.side_head("Liquidity Filter"),
+                        unsafe_allow_html=True)
 
     require_two_sided = st.sidebar.checkbox(
         "Sirf two-sided book (bid AND ask)", value=True, key=f"{prefix}_two_sided",
@@ -768,7 +794,8 @@ def render_liquidity_controls(prefix: str = "",
         help="Spot se kitne door tak ke strikes dikhane hain.")
 
     if include_delta:
-        st.sidebar.markdown("### 📐 Delta Band")
+        st.sidebar.markdown(theme.side_head("Delta Band"),
+                            unsafe_allow_html=True)
         band = st.sidebar.slider(
             "|Δ| × 100", 0, 100, (0, 100), key=f"{prefix}_delta_band",
             help="Sirf is delta range ke options dikhaiye. 0-100 = filter off. "

@@ -36,6 +36,7 @@ import streamlit as st
 
 from mmc_core import charts as ch
 from mmc_core import delta_api as api
+from mmc_core import theme
 from mmc_core import ui_common as ui
 from mmc_core import volatility as vx
 
@@ -69,7 +70,7 @@ with st.spinner(f"{underlying} volatility index compute kar rahe hain…"):
 value = index["value"]
 per_expiry = index["per_expiry"]
 
-st.markdown("### 🌡️ Regime Band")
+st.markdown(theme.section("Regime band", "index is range mein ho tabhi aapka regime hai"), unsafe_allow_html=True)
 band = st.slider(
     f"{underlying} VIX band", 0, 100, (40, 80), key="vol_regime_band",
     help="Is range mein index ho tabhi aapka regime chal raha hai. "
@@ -85,13 +86,37 @@ status = vx.regime_status(value, (float(band[0]), float(band[1])))
 basis = ("30-din constant maturity" if index["constant_maturity"]
          else f"{index['basis_days']:.1f}-din (constant maturity nahi)")
 
-m1, m2, m3, m4 = st.columns(4)
-m1.metric(f"{underlying} VIX", f"{value:.1f}" if not math.isnan(value) else "—",
-          help=basis)
-m2.metric("Aapka band", f"{band[0]} – {band[1]}")
-m3.metric("Basis", basis.split(" (")[0])
-m4.metric("Expiries used",
-          f"{sum(1 for e in per_expiry if e['reason'] is None)} / {len(per_expiry)}")
+_REGIME_BADGE = {
+    "inside": ("IN REGIME", "good"),
+    "below": ("BELOW BAND", "warn"),
+    "above": ("ABOVE BAND", "serious"),
+    "unknown": ("NO READING", "critical"),
+}
+badge_text, badge_tone = _REGIME_BADGE[status["position"]]
+
+st.markdown(theme.hero(
+    f"{underlying} VIX",
+    f"{value:.1f}" if not math.isnan(value) else "—",
+    sub=f"{basis} · aapka band {band[0]} – {band[1]}",
+    badge_html=theme.badge(badge_text, badge_tone),
+    tone="" if status["in_regime"] or status["position"] == "unknown"
+         else "down",
+), unsafe_allow_html=True)
+
+used = sum(1 for e in per_expiry if e["reason"] is None)
+st.markdown(theme.stat_row([
+    theme.stat("Band", f"{band[0]} – {band[1]}", sub="regime gate"),
+    theme.stat("Basis", basis.split(" (")[0],
+               sub="30 din par hi numbers comparable hain",
+               tone="" if index["constant_maturity"] else "down"),
+    theme.stat("Expiries used", f"{used} / {len(per_expiry)}",
+               sub="valid variance nikli",
+               tone="down" if used < 2 else ""),
+    theme.stat("Distance from band",
+               "—" if status["position"] in ("inside", "unknown")
+               else f"{status['distance']:.1f} pts",
+               sub=status["position"]),
+]), unsafe_allow_html=True)
 
 if status["position"] == "unknown":
     st.error(
@@ -133,7 +158,7 @@ if index["note"] and not math.isnan(value):
 valid = [e for e in per_expiry if e["reason"] is None and not math.isnan(e["sigma2"])]
 
 if len(valid) >= 2:
-    st.markdown("### 📅 Model-free vol, har expiry par")
+    st.markdown(theme.section("Model-free vol, har expiry par"), unsafe_allow_html=True)
     st.caption("Ye IV Skew page ki ATM IV curve nahi hai — har point poori OTM "
                "chain se banta hai, sirf ATM strike se nahi.")
     st.plotly_chart(
@@ -147,7 +172,7 @@ if len(valid) >= 2:
 # Kaam kaise hua
 # --------------------------------------------------------------------------
 
-st.markdown("### 🔬 Index kaise bana")
+st.markdown(theme.section("Index kaise bana", "har number ka hisaab"), unsafe_allow_html=True)
 
 detail = pd.DataFrame([{
     "Expiry": e["label"],
@@ -166,7 +191,7 @@ st.dataframe(
         "Days": "{:.2f}", "Vol %": "{:.2f}",
         "Strikes used": "{:,.0f}", "Forward": "${:,.0f}", "K₀": "${:,.0f}",
     }, na_rep="—"),
-    width="stretch",
+    hide_index=True, width="stretch",
 )
 
 # Tang chain index ko chup-chaap NEECHE le jaati hai, aur regime gate ke liye
