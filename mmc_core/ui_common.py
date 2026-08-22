@@ -566,7 +566,8 @@ def enrich_chain(df: pd.DataFrame, spot: float, contract_value: float,
 def apply_liquidity_filter(df: pd.DataFrame, max_spread_pct: float,
                            min_oi: float, min_volume: float,
                            max_moneyness_pct: float,
-                           require_two_sided: bool) -> pd.DataFrame:
+                           require_two_sided: bool,
+                           delta_band: tuple | None = None) -> pd.DataFrame:
     """Drop untradable strikes. This is the highest-value filter on Delta India.
 
     On a crypto chain most far strikes have a one-sided book or a 40%+ spread.
@@ -598,7 +599,37 @@ def apply_liquidity_filter(df: pd.DataFrame, max_spread_pct: float,
     if max_moneyness_pct is not None and max_moneyness_pct > 0:
         mask &= df["abs_moneyness_pct"] <= max_moneyness_pct
 
+    mask &= delta_band_mask(df, delta_band)
+
     return df[mask].copy()
+
+
+DELTA_BAND_OFF = (0.0, 100.0)
+
+
+def delta_band_mask(df: pd.DataFrame, delta_band) -> pd.Series:
+    """|Δ| × 100 ko ek band ke andar rakhne wala mask.
+
+    Traders strike ko delta se chunte hain, strike price se nahi — "25 delta
+    put bech do" ek poora instruction hai. Isliye band ABSOLUTE delta par lagta
+    hai: 25 maangne par 0.25 delta call aur −0.25 delta put dono aane chahiye.
+
+    Band poora khula (0-100) ho to koi filter nahi lagta. Band set karne ka
+    matlab hai user ne delta se chunav kiya hai — to jis row ka delta hi
+    unknown hai use "shayad match karti hai" maan kar rakhna galat hai, wo
+    bahar jaati hai.
+    """
+    if delta_band is None or df.empty or "delta" not in df.columns:
+        return pd.Series(True, index=df.index)
+
+    lo, hi = float(delta_band[0]), float(delta_band[1])
+    if lo > hi:
+        lo, hi = hi, lo
+    if (lo, hi) == DELTA_BAND_OFF:
+        return pd.Series(True, index=df.index)
+
+    abs_delta_pct = df["delta"].abs() * 100.0
+    return abs_delta_pct.between(lo, hi).fillna(False)
 
 
 # --------------------------------------------------------------------------
@@ -709,8 +740,13 @@ def render_diagnostics(context: dict, df: pd.DataFrame, settings: dict) -> None:
                    f"refresh window {settings['refresh_seconds']}s")
 
 
-def render_liquidity_controls(prefix: str = "") -> dict:
-    """Liquidity filter widgets. Shared so both pages filter identically."""
+def render_liquidity_controls(prefix: str = "",
+                              include_delta: bool = True) -> dict:
+    """Liquidity filter widgets. Shared so every page filters identically.
+
+    include_delta=False jab page khud, apne upar, ek bada delta control dikha
+    raha ho — do jagah ek hi filter rakhna sirf confusion paida karta hai.
+    """
     st.sidebar.markdown("### 💧 Liquidity Filter")
 
     require_two_sided = st.sidebar.checkbox(
@@ -730,10 +766,24 @@ def render_liquidity_controls(prefix: str = "") -> dict:
         "Strike range (± % from spot)", 1, 100, 20, key=f"{prefix}_mny",
         help="Spot se kitne door tak ke strikes dikhane hain.")
 
+    if include_delta:
+        st.sidebar.markdown("### 📐 Delta Band")
+        band = st.sidebar.slider(
+            "|Δ| × 100", 0, 100, (0, 100), key=f"{prefix}_delta_band",
+            help="Sirf is delta range ke options dikhaiye. 0-100 = filter off. "
+                 "Band ABSOLUTE delta par lagta hai, to 20-30 maangne par "
+                 "0.25 call aur −0.25 put dono aayenge.",
+        )
+        if tuple(float(x) for x in band) != DELTA_BAND_OFF:
+            st.sidebar.caption(f"Sirf {band[0]}Δ – {band[1]}Δ ke contracts")
+    else:
+        band = DELTA_BAND_OFF
+
     return {
         "require_two_sided": require_two_sided,
         "max_spread_pct": float(max_spread_pct),
         "min_oi": float(min_oi),
         "min_volume": float(min_volume),
         "max_moneyness_pct": float(max_moneyness),
+        "delta_band": (float(band[0]), float(band[1])),
     }

@@ -55,12 +55,7 @@ usdinr = settings["usdinr"]
 r = settings["risk_free"]
 cfg = settings["fee_cfg"]
 
-filtered = ui.apply_liquidity_filter(
-    df,
-    max_spread_pct=liq["max_spread_pct"], min_oi=liq["min_oi"],
-    min_volume=liq["min_volume"], max_moneyness_pct=liq["max_moneyness_pct"],
-    require_two_sided=liq["require_two_sided"],
-)
+filtered = ui.apply_liquidity_filter(df, **liq)
 
 if filtered.empty:
     st.warning("Liquidity filter ke baad koi leg available nahi hai.")
