@@ -35,6 +35,7 @@ import streamlit as st
 
 from mmc_core import delta_api as api
 from mmc_core import fees as fx
+from mmc_core import theme
 from mmc_core import ui_common as ui
 
 ui.page_setup(
@@ -70,8 +71,11 @@ st.caption("ℹ️ Is page par two-sided book **hamesha** required hai — "
            "bina bid aur ask ke koi arbitrage check possible hi nahi.")
 
 if filtered.empty:
-    st.warning("Two-sided book wala koi strike nahi mila. "
-               "Spread limit badhaiye ya dusri expiry chunein.")
+    st.markdown(theme.empty_state(
+        "⚖️", "Two-sided book wala koi strike nahi mila",
+        "Arbitrage check bina bid aur ask ke ho hi nahi sakta. "
+        "Spread limit badhaiye ya doosri expiry chunein."
+    ), unsafe_allow_html=True)
     ui.render_diagnostics(context, df, settings)
     ui.maybe_auto_refresh(settings)
     st.stop()
@@ -197,8 +201,7 @@ with tab1:
                 "Fees ₹": "₹{:,.2f}", "Net edge ₹/lot": "₹{:+,.2f}",
                 "Min OI": "{:,.0f}", "Max Spread %": "{:.1f}",
             }).background_gradient(subset=["Net edge ₹/lot"], cmap="RdYlGn"),
-            width="stretch", height=400,
-        )
+            width="stretch", height=400, hide_index=True)
 
         st.info("**Practical note:** Synthetic ko hedge karne ke liye aapko "
                 "perpetual future ki leg chahiye hogi. Uska funding rate aur "
@@ -279,7 +282,7 @@ with tab2:
                 "Fees ₹": "₹{:,.2f}", "Net edge ₹/lot": "₹{:+,.2f}",
                 "Min OI": "{:,.0f}",
             }).background_gradient(subset=["Net edge ₹/lot"], cmap="RdYlGn"),
-            width="stretch", height=380,
+            hide_index=True, width="stretch", height=380,
         )
         st.error("Aise violations 99% baar stale quote hote hain. Delta ke UI "
                  "par khud jaakar dono strikes ka live book verify kijiye "
@@ -340,7 +343,7 @@ with tab3:
                 "Fees ₹": "₹{:,.2f}", "Net edge ₹/lot": "₹{:+,.2f}",
                 "Body OI": "{:,.0f}", "Body spread %": "{:.1f}",
             }).background_gradient(subset=["Net edge ₹/lot"], cmap="RdYlGn"),
-            width="stretch", height=360,
+            hide_index=True, width="stretch", height=360,
         )
         st.caption("Butterfly ke teen legs matlab **6 fills** (entry + exit). "
                    "Har fill par spread aur fee lagegi. Paper edge yahan "
@@ -408,8 +411,7 @@ with tab4:
                 "Gross edge $": "${:+,.2f}", "Fees ₹ (4 legs)": "₹{:,.2f}",
                 "Net edge ₹/lot": "₹{:+,.2f}", "Min OI": "{:,.0f}",
             }).background_gradient(subset=["Net edge ₹/lot"], cmap="RdYlGn"),
-            width="stretch", height=360,
-        )
+            width="stretch", height=360, hide_index=True)
         st.error(
             "**Box par teen cheezein yaad rakhein:**\n\n"
             "1. Chaaron legs ek saath bharni padengi — ek bhi leg reh gayi to "

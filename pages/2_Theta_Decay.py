@@ -28,6 +28,7 @@ from mmc_core import charts as ch
 from mmc_core import delta_api as api
 from mmc_core import fees as fx
 from mmc_core import options_math as om
+from mmc_core import theme
 from mmc_core import ui_common as ui
 
 ui.page_setup(
@@ -59,8 +60,11 @@ now = context["now"]
 filtered = ui.apply_liquidity_filter(df, **liq)
 
 if filtered.empty:
-    st.warning("Liquidity filter ke baad koi strike nahi bacha. "
-               "Sidebar mein limits dheeli kijiye.")
+    st.markdown(theme.empty_state(
+        "🫙", "Liquidity filter ke baad koi strike nahi bacha",
+        "Sidebar mein spread limit badhaiye ya strike range widen kijiye. "
+        "Decay sirf un strikes par matlab rakhta hai jinse aap nikal bhi sakein."
+    ), unsafe_allow_html=True)
     ui.render_diagnostics(context, df, settings)
     st.stop()
 
@@ -81,7 +85,7 @@ tab_scan, tab_lab, tab_basket = st.tabs(
 # ==========================================================================
 
 with tab_scan:
-    st.markdown("### Kaunse strikes sabse tez jal rahe hain")
+    st.markdown(theme.section("Kaunse strikes sabse tez jal rahe hain", "burn = repricing se, analytic theta se nahi"), unsafe_allow_html=True)
 
     horizon_hours = st.slider(
         "Decay horizon (hours ahead)", min_value=1, max_value=72, value=24,
@@ -159,8 +163,8 @@ with tab_scan:
                 "Spread %": "{:.1f}", "OI": "{:,.0f}",
             }, na_rep="—").background_gradient(
                 subset=["Burn % of premium"], cmap="YlOrRd"),
-            width='stretch',
-            height=520,
+            hide_index=True, width='stretch',
+            height=theme.table_height(len(scan), max_px=520),
         )
 
         losers = scan[scan["Net after cost ₹"] <= 0]
@@ -191,7 +195,7 @@ with tab_scan:
 # ==========================================================================
 
 with tab_lab:
-    st.markdown("### Ek strike ka poora decay curve")
+    st.markdown(theme.section("Ek strike ka poora decay curve"), unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns([2, 1, 1])
 
@@ -277,7 +281,7 @@ with tab_lab:
                 curve["Step burn ₹"] = curve["step_decay"].apply(usd_to_inr_lot) * lots
                 curve["Hours ahead"] = curve["hours_ahead"].round(2)
 
-                st.markdown("#### Premium melting away")
+                st.markdown(theme.section("Premium melting away", "premium bacha aur burn — dono ₹ per lot"), unsafe_allow_html=True)
                 st.plotly_chart(
                     ch.decay_curve(curve["Hours ahead"].tolist(),
                                    curve["Premium ₹"].tolist(),
@@ -285,7 +289,7 @@ with tab_lab:
                     width="stretch",
                 )
 
-                st.markdown("#### Burn per step (theta acceleration dikhta hai)")
+                st.markdown(theme.section("Burn per step", "dahini taraf uthta tail = theta acceleration"), unsafe_allow_html=True)
                 st.plotly_chart(
                     ch.burn_bars(curve["Hours ahead"].tolist(),
                                  curve["Step burn ₹"].tolist()),
@@ -301,7 +305,7 @@ with tab_lab:
                             "Step burn ₹": "₹{:,.2f}",
                             "Cumulative burn ₹": "₹{:,.2f}",
                         }),
-                        width='stretch', height=340,
+                        hide_index=True, width='stretch', height=340,
                     )
 
             st.caption(
@@ -315,7 +319,7 @@ with tab_lab:
 # ==========================================================================
 
 with tab_basket:
-    st.markdown("### Multi-leg position ka net theta")
+    st.markdown(theme.section("Multi-leg position ka net theta"), unsafe_allow_html=True)
     st.caption("Neeche table mein legs add kijiye. Sell = premium receive, "
                "Buy = premium pay. Rows add/delete karne ke liye table use karein.")
 
@@ -413,8 +417,7 @@ with tab_basket:
                     "Δ (underlying units)": "{:+.5f}",
                     "Vega ₹/vol pt": "₹{:,.2f}",
                 }),
-                width='stretch',
-            )
+                width='stretch', hide_index=True)
 
             # ---- Basket decay P&L curve --------------------------------
             min_t = min(float(L["row"]["t_years"]) for L in legs)
@@ -450,7 +453,7 @@ with tab_basket:
                         "Decay-only P&L ₹": pnl,
                     }).set_index("Hours ahead")
 
-                    st.markdown("#### Decay-only P&L (spot & IV frozen)")
+                    st.markdown(theme.section("Decay-only P&L", "spot aur IV frozen"), unsafe_allow_html=True)
                     st.plotly_chart(
                         ch.decay_curve(pnl_df.index.tolist(),
                                        pnl_df["Decay-only P&L ₹"].tolist(),

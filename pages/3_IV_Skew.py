@@ -26,6 +26,7 @@ import streamlit as st
 from mmc_core import charts as ch
 from mmc_core import delta_api as api
 from mmc_core import options_math as om
+from mmc_core import theme
 from mmc_core import ui_common as ui
 
 ui.page_setup(
@@ -52,8 +53,11 @@ spot = context["spot"]
 filtered = ui.apply_liquidity_filter(df, **liq)
 
 if filtered.empty or filtered["iv"].notna().sum() < 3:
-    st.warning("Skew banane ke liye kam se kam 3 valid IV chahiye. "
-               "Liquidity filter dheela kijiye.")
+    st.markdown(theme.empty_state(
+        "🌊", "Skew banane ke liye kam se kam 3 valid IV chahiye",
+        "Filter ne itne contracts hata diye ki curve banti hi nahi. "
+        "Spread limit badhaiye ya strike range widen kijiye."
+    ), unsafe_allow_html=True)
     ui.render_diagnostics(context, df, settings)
     ui.maybe_auto_refresh(settings)
     st.stop()
@@ -86,7 +90,7 @@ with tab_smile:
     st.plotly_chart(fig, width="stretch")
 
     # ---- Skew metrics ---------------------------------------------------
-    st.markdown("### 📐 Skew Metrics")
+    st.markdown(theme.section("Skew metrics", "25Δ par interpolate kiya gaya"), unsafe_allow_html=True)
 
     def iv_at_delta(frame: pd.DataFrame, target_delta: float) -> float:
         """Linear-interpolate IV at a target absolute delta.
@@ -170,7 +174,7 @@ with tab_smile:
                 "Strike": "{:,.0f}", "Moneyness %": "{:+.1f}", "IV %": "{:.2f}",
                 "Delta": "{:+.3f}", "Spread %": "{:.1f}", "OI": "{:,.0f}",
             }, na_rep="—"),
-            width="stretch", height=380,
+            hide_index=True, width="stretch", height=380,
         )
 
 # ==========================================================================
@@ -178,7 +182,7 @@ with tab_smile:
 # ==========================================================================
 
 with tab_term:
-    st.markdown("### ATM IV across every live expiry")
+    st.markdown(theme.section("ATM IV across every live expiry"), unsafe_allow_html=True)
     st.caption("Har expiry ke liye ek alag API call jaati hai. "
                "Expiries jitni zyada, utna time lagega — sab cached hai.")
 
@@ -277,7 +281,7 @@ with tab_term:
                     "Strikes": "{:,.0f}", "Liquid %": "{:.0f}%",
                     "Total OI": "{:,.0f}",
                 }),
-                width="stretch",
+                hide_index=True, width="stretch",
             )
 
 ui.render_diagnostics(context, df, settings)

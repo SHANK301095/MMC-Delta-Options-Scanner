@@ -1,0 +1,24 @@
+# MMC Delta Scanner — app theme
+#
+# Ye values mmc_core/theme.py ke tokens se exactly match karti hain. Dono ko
+# saath badalna zaroori hai: ye Streamlit ke apne widgets ko rangti hai, aur
+# theme.py hamari CSS aur charts ko. Alag ho gaye to app do halves mein
+# bat jaayegi.
+#
+# Dark par tay hai, jaan-boojh kar — ye trading terminal hai, log ise ghanton
+# dekhte hain. Theme.py ke docstring mein poori wajah likhi hai.
+
+[theme]
+base = "dark"
+primaryColor = "#3987e5"            # SERIES_1 — links, focus rings, sliders
+backgroundColor = "#0d0d0c"         # SURFACE_0 — page plane
+secondaryBackgroundColor = "#12120f" # SURFACE_1 — sidebar, cards, table header
+textColor = "#ffffff"                # INK_1
+font = "sans serif"
+
+[server]
+# Chain data har refresh window par badalta hai; upload ki zaroorat nahi.
+maxUploadSize = 5
+
+[browser]
+gatherUsageStats = false

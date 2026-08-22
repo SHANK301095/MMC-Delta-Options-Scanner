@@ -10,6 +10,7 @@ layer ke paas reprice karne ke liye consistent data ho.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -164,6 +165,21 @@ def test_widening_the_band_never_shrinks_the_result(offline_chain):
 
 VOL_PAGE = REPO_ROOT / "pages" / "7_Vol_Regime.py"
 
+_HERO_RE = re.compile(r'class="mmc-hero-value[^"]*">([^<]+)<')
+
+
+def _hero_value(at):
+    """Rendered page se hero ka number nikaaliye, ya None."""
+    for block in at.markdown:
+        found = _HERO_RE.search(str(block.value))
+        if found:
+            text = found.group(1).strip()
+            try:
+                return float(text)
+            except ValueError:
+                return None
+    return None
+
 
 def test_vol_regime_page_reports_in_regime_when_the_band_contains_the_index(
         offline_chain):
@@ -190,6 +206,8 @@ def test_vol_regime_headline_is_close_to_the_vol_the_fixture_was_built_from(
     at = AppTest.from_file(str(VOL_PAGE), default_timeout=120).run()
     assert not at.exception
 
-    headline = next(m for m in at.metric if m.label.endswith("VIX"))
-    assert headline.value != "—", "index compute hi nahi hua"
-    assert float(headline.value) == pytest.approx(SIGMA * 100, rel=0.10)
+    # Headline ab ek hero block hai, native metric nahi — test ka maqsad wahi
+    # hai (poore stack ka round trip), sirf padhne ki jagah badli hai.
+    value = _hero_value(at)
+    assert value is not None, "VIX hero render hi nahi hua"
+    assert value == pytest.approx(SIGMA * 100, rel=0.10)

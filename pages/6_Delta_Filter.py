@@ -27,6 +27,7 @@ import streamlit as st
 
 from mmc_core import charts as ch
 from mmc_core import delta_api as api
+from mmc_core import theme
 from mmc_core import ui_common as ui
 
 ui.page_setup(
@@ -58,7 +59,7 @@ cv = context["contract_value"]
 # Delta band control
 # --------------------------------------------------------------------------
 
-st.markdown("### 📐 Kaunsa Delta chahiye")
+st.markdown(theme.section("Kaunsa delta chahiye", "band absolute |Δ| par lagta hai"), unsafe_allow_html=True)
 
 # Quick-picks pehle chalne chahiye: ye slider ki value session_state mein set
 # karte hain, aur Streamlit widget ko uske banne ke BAAD set karna allowed
@@ -99,30 +100,33 @@ filtered = ui.apply_liquidity_filter(df, **liq)
 in_band_before_liquidity = int(ui.delta_band_mask(df, liq["delta_band"]).sum())
 dropped_by_liquidity = in_band_before_liquidity - len(filtered)
 
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Band mein contracts", f"{len(filtered)}")
-k2.metric("Liquidity ne hataye", f"{dropped_by_liquidity}",
-          help="Ye contracts delta band mein the lekin spread / OI / two-sided "
-               "book ke filter mein fail ho gaye.")
-k3.metric("Band", f"{band[0]}Δ – {band[1]}Δ")
-k4.metric("Snapshot", api.fmt_ist(context["now"]).replace(" IST", ""),
-          help="Sidebar ke refresh window par update hota hai.")
+st.markdown(theme.stat_row([
+    theme.stat("Band mein contracts", f"{len(filtered)}",
+               sub=f"{band[0]}Δ – {band[1]}Δ", accent=True),
+    theme.stat("Liquidity ne hataye", f"{dropped_by_liquidity}",
+               sub="band mein the, tradable nahi",
+               tone="down" if dropped_by_liquidity > len(filtered) else ""),
+    theme.stat("Price basis", settings["price_mode"].split(" (")[0],
+               sub=f"1 lot = {cv:g} {settings['underlying']}"),
+    theme.stat("Snapshot", api.fmt_ist(context["now"]).replace(" IST", ""),
+               sub=f"har {settings['refresh_seconds']}s"),
+]), unsafe_allow_html=True)
 
 if filtered.empty:
     if in_band_before_liquidity == 0:
-        st.warning(
-            f"Is expiry par **{band[0]}Δ – {band[1]}Δ** ka koi contract hai hi nahi. "
-            "Chain ka delta range neeche wale chart mein dekh lijiye — aksar "
-            "near-expiry par delta ekdam 0 se 100 par kood jaata hai aur "
-            "beech ki values milti hi nahi."
-        )
+        st.markdown(theme.empty_state(
+            "🎯", f"{band[0]}Δ – {band[1]}Δ ka koi contract hai hi nahi",
+            "Band ko chauda kijiye, ya doosri expiry chunein. Near-expiry par "
+            "delta aksar 0 se seedha 100 par kood jaata hai aur beech ki "
+            "values milti hi nahi — neeche wala chart ye dikha dega."
+        ), unsafe_allow_html=True)
     else:
-        st.warning(
-            f"Band mein **{in_band_before_liquidity}** contracts the, lekin "
-            "sab liquidity filter mein nikal gaye. Sidebar mein spread limit "
-            "badhaiye ya two-sided requirement hataiye — par yaad rahe, wo "
+        st.markdown(theme.empty_state(
+            "💧", f"Band mein {in_band_before_liquidity} the, sab filter mein nikal gaye",
+            "Delta to sahi tha, liquidity nahi. Sidebar mein spread limit "
+            "badhaiye ya two-sided ki shart hataiye — par yaad rahe, wo "
             "contracts practically tradable nahi hain."
-        )
+        ), unsafe_allow_html=True)
     ui.render_diagnostics(context, df, settings)
     ui.maybe_auto_refresh(settings)
     st.stop()
@@ -131,7 +135,7 @@ if filtered.empty:
 # Live rates table
 # --------------------------------------------------------------------------
 
-st.markdown("### 💹 Live Rates")
+st.markdown(theme.section("Live rates", "Buy @ / Sell @ = sidebar ka price basis"), unsafe_allow_html=True)
 
 usdinr = settings["usdinr"]
 work = filtered.copy()
@@ -168,8 +172,7 @@ st.dataframe(
         "θ ₹/lot/day": "₹{:,.2f}", "Cost % (fee+slip)": "{:.2f}%",
         "Net θ %/day": "{:+.2f}%", "OI": "{:,.0f}", "Quote age s": "{:,.0f}",
     }, na_rep="—"),
-    width="stretch", height=460,
-)
+    width="stretch", height=theme.table_height(len(tbl)), hide_index=True)
 
 st.caption(
     f"1 lot = {cv:g} {settings['underlying']} · ₹ conversion @ {usdinr:.2f} · "
@@ -195,7 +198,7 @@ if not stale.empty:
 # Band chain par kahan baitha hai
 # --------------------------------------------------------------------------
 
-st.markdown("### 🗺️ Band chain par kahan hai")
+st.markdown(theme.section("Band chain par kahan hai"), unsafe_allow_html=True)
 st.caption("Delta ek abstract number hai — ye chart batata hai ki aapki range "
            "spot se kitni door padti hai, aur wahan contracts hain bhi ya nahi.")
 
@@ -216,7 +219,8 @@ st.plotly_chart(
 # --------------------------------------------------------------------------
 
 target = (band[0] + band[1]) / 2.0
-st.markdown(f"### 🎯 {target:.0f}Δ ke sabse kareeb (band ka madhya)")
+st.markdown(theme.section(f"{target:.0f}Δ ke sabse kareeb",
+                          "band ka madhya"), unsafe_allow_html=True)
 
 pick_cols = st.columns(2)
 for col, is_call, name in ((pick_cols[0], True, "CALL"), (pick_cols[1], False, "PUT")):

@@ -93,6 +93,50 @@ rounding expiry din ka premium ~8x overstate kar deti hai.
 
 ---
 
+## Design system
+
+Poore app ka look ek jagah se aata hai — `mmc_core/theme.py` (tokens, CSS,
+components) aur `.streamlit/config.toml` (Streamlit ke apne widgets). Dono ek
+hi hex values use karte hain, aur ek test unke beech drift pakadta hai.
+
+**Dark par tay hai, jaan-boojh kar.** Ye trading terminal hai; log ise ghanton
+dekhte hain. "Dono modes support kar lete hain" ka practical matlab hota hai
+dono aadhe-adhoore.
+
+**Har rang ka ek hi kaam hai:**
+
+| Kaam | Kahan |
+|---|---|
+| CALL / profit / decay favour mein | `ACCENT_UP` (aqua-green) |
+| PUT / loss | `ACCENT_DOWN` (red) |
+| Analytical series (model curve, payoff) | `SERIES_1`, `SERIES_2` |
+| Spot, ATM, thresholds | recessive ink hairline — **koi hue nahi** |
+| Status: healthy / watch / risky / broken | `STATUS_*`, sirf badges aur gates |
+
+Status ke rang series se alag hain aur ek test dono sets ko disjoint rakhta hai.
+Reference lines ko hue isliye nahi milta ki wo asli series se muqabla karti aur
+ek free colour slot kha jaati.
+
+**Do niyam jo charts mein tode nahi jaate,** aur dono ke apne tests hain:
+
+1. **Ek chart, ek y-axis.** Do scales ka alignment manmaana hota hai, isliye
+   chart ek aisa rishta dikha deta hai jo data mein hai hi nahi. `decay_curve`
+   pehle isi galti par tha — premium aur burn dono ₹ per lot hain, unhe alag
+   axes par rakhne ka koi kaaran nahi tha.
+2. **Calls aur puts kabhi sirf rang se alag nahi.** Green/red market ki bhasha
+   hai, badli nahi ja sakti — lekin validate karne par yahi jodi protanopia
+   mein sabse kam alag dikhti hai (CVD ΔE 6.5, warn band). Isliye har aise
+   chart mein ek doosra channel bhi hai: marker shape (circle vs diamond) ya
+   line dash.
+
+Palette ek validator se paas ki gayi hai app ke apne dark surface par —
+lightness band, chroma floor, CVD separation, normal-vision floor aur contrast.
+
+Aur ek chhoti si line jo option chain ko padhne layak banati hai: har table
+`font-variant-numeric: tabular-nums` par hai. Iske bina har column ke digits
+apni marzi se hilte hain aur do keemtein aankh se compare karna namumkin
+ho jaata hai.
+
 ## Units contract
 
 Har options bug yahin se shuru hota hai, isliye ek jagah likha hai:
@@ -120,7 +164,7 @@ har page ke **🩺 Diagnostics** expander mein dikhta hai.
 
 ```bash
 pip install -r requirements.txt pytest
-python -m pytest tests/ -v          # 218 tests
+python -m pytest tests/ -v          # 266 tests
 python tests/check_read_only.py     # read-only guard
 ```
 

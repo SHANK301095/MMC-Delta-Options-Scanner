@@ -28,6 +28,7 @@ from mmc_core import charts as ch
 from mmc_core import delta_api as api
 from mmc_core import fees as fx
 from mmc_core import options_math as om
+from mmc_core import theme
 from mmc_core import ui_common as ui
 
 ui.page_setup(
@@ -58,7 +59,11 @@ cfg = settings["fee_cfg"]
 filtered = ui.apply_liquidity_filter(df, **liq)
 
 if filtered.empty:
-    st.warning("Liquidity filter ke baad koi leg available nahi hai.")
+    st.markdown(theme.empty_state(
+        "🎯", "Koi leg available nahi hai",
+        "Payoff banane ke liye kam se kam ek tradable contract chahiye. "
+        "Sidebar mein liquidity filter dheela kijiye."
+    ), unsafe_allow_html=True)
     ui.render_diagnostics(context, df, settings)
     ui.maybe_auto_refresh(settings)
     st.stop()
@@ -89,7 +94,7 @@ def find_label(strike: float, is_call: bool):
 # Preset strategies
 # ==========================================================================
 
-st.markdown("### 1️⃣ Strategy chunein")
+st.markdown(theme.section("1 · Strategy chunein"), unsafe_allow_html=True)
 
 PRESETS = [
     "Custom (khaali)", "Short Straddle", "Long Straddle",
@@ -143,7 +148,7 @@ if not seed_rows:
     fallback = find_label(atm, True)
     seed_rows = [{"Leg": fallback or options_list[0], "Side": "Sell", "Lots": 1}]
 
-st.markdown("### 2️⃣ Legs adjust kijiye")
+st.markdown(theme.section("2 · Legs adjust kijiye"), unsafe_allow_html=True)
 st.caption("Rows add / delete kar sakte hain. Preset badalne par table reset hoga.")
 
 edited = st.data_editor(
@@ -233,7 +238,7 @@ total_fee_inr = total_fee_usd * usdinr
 net_theta_inr = net_theta * usdinr
 net_vega_inr = net_vega * usdinr
 
-st.markdown("### 3️⃣ Entry economics")
+st.markdown(theme.section("3 · Entry economics", "executable fills, fees dono taraf"), unsafe_allow_html=True)
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Net premium",
@@ -258,8 +263,7 @@ st.dataframe(
         "Fill price $": "${:,.2f}", "vs Mark $": "${:+,.2f}",
         "Cash ₹": "₹{:,.2f}", "Fees ₹ (both sides)": "₹{:,.2f}",
     }),
-    width="stretch",
-)
+    width="stretch", hide_index=True)
 
 if mode == "realistic":
     st.caption("💡 *Fill price* = Buy par ASK, Sell par BID. *vs Mark* batata hai "
@@ -269,7 +273,7 @@ if mode == "realistic":
 # Payoff
 # ==========================================================================
 
-st.markdown("### 4️⃣ Payoff")
+st.markdown(theme.section("4 · Payoff"), unsafe_allow_html=True)
 
 rng = st.slider("Spot range (± % from now)", 5, 60, 20)
 lo_s, hi_s = spot * (1 - rng / 100.0), spot * (1 + rng / 100.0)
@@ -383,7 +387,7 @@ with st.expander("📋 Payoff table (har 5% par)"):
             "Spot": "{:,.0f}", "Move %": "{:+.0f}%",
             "P&L at expiry ₹": "₹{:,.0f}", f"P&L {label_now} ₹": "₹{:,.0f}",
         }).background_gradient(subset=["P&L at expiry ₹"], cmap="RdYlGn"),
-        width="stretch", height=380,
+        hide_index=True, width="stretch", height=380,
     )
 
 ui.render_diagnostics(context, df, settings)
