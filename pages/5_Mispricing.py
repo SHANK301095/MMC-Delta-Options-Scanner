@@ -64,12 +64,7 @@ cfg = settings["fee_cfg"]
 
 # Arbitrage checks are meaningless without a two-sided book, so this page
 # forces that requirement regardless of the sidebar setting.
-filtered = ui.apply_liquidity_filter(
-    df,
-    max_spread_pct=liq["max_spread_pct"], min_oi=liq["min_oi"],
-    min_volume=liq["min_volume"], max_moneyness_pct=liq["max_moneyness_pct"],
-    require_two_sided=True,
-)
+filtered = ui.apply_liquidity_filter(df, **{**liq, "require_two_sided": True})
 
 st.caption("ℹ️ Is page par two-sided book **hamesha** required hai — "
            "bina bid aur ask ke koi arbitrage check possible hi nahi.")

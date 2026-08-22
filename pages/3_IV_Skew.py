@@ -49,12 +49,7 @@ ui.render_context_header(settings, context, df)
 
 spot = context["spot"]
 
-filtered = ui.apply_liquidity_filter(
-    df,
-    max_spread_pct=liq["max_spread_pct"], min_oi=liq["min_oi"],
-    min_volume=liq["min_volume"], max_moneyness_pct=liq["max_moneyness_pct"],
-    require_two_sided=liq["require_two_sided"],
-)
+filtered = ui.apply_liquidity_filter(df, **liq)
 
 if filtered.empty or filtered["iv"].notna().sum() < 3:
     st.warning("Skew banane ke liye kam se kam 3 valid IV chahiye. "

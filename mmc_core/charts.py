@@ -212,3 +212,41 @@ def spread_heat(strikes, spread_pct, spot: float, limit: float) -> go.Figure:
     fig.update_layout(hovermode="closest")
     add_spot_line(fig, spot)
     return fig
+
+
+def delta_profile(call_strikes, call_delta_pct, put_strikes, put_delta_pct,
+                  spot: float, band: tuple | None = None) -> go.Figure:
+    """|Δ| × 100 vs strike, chuni hui delta band shaded.
+
+    Delta band ek abstract number hai; ye chart use chain par jagah deta hai —
+    turant dikh jaata hai ki 20-30Δ maangne par aap spot se kitne door ja rahe
+    hain, aur us range mein contracts hain bhi ya nahi.
+    """
+    fig = go.Figure()
+
+    if band is not None:
+        lo, hi = float(band[0]), float(band[1])
+        fig.add_hrect(y0=lo, y1=hi, fillcolor=C_MODEL, opacity=0.13,
+                      line_width=0, layer="below",
+                      annotation_text=f"Band {lo:.0f}Δ – {hi:.0f}Δ",
+                      annotation_position="top left",
+                      annotation_font_color=C_MODEL, annotation_font_size=11)
+
+    fig.add_scatter(x=call_strikes, y=call_delta_pct, name="Call |Δ|",
+                    mode="markers+lines",
+                    line=dict(color=C_CALL, width=1.5),
+                    marker=dict(color=C_CALL, size=7, symbol="circle"),
+                    hovertemplate="Strike %{x:,.0f}<br>Call |Δ| %{y:.1f}<extra></extra>")
+    fig.add_scatter(x=put_strikes, y=put_delta_pct, name="Put |Δ|",
+                    mode="markers+lines",
+                    line=dict(color=C_PUT, width=1.5, dash="dot"),
+                    marker=dict(color=C_PUT, size=7, symbol="diamond"),
+                    hovertemplate="Strike %{x:,.0f}<br>Put |Δ| %{y:.1f}<extra></extra>")
+
+    apply_layout(fig, height=360, x_title="Strike", y_title="|Delta| × 100")
+    fig.update_layout(hovermode="closest", yaxis=dict(range=[0, 100],
+                                                      gridcolor=C_GRID,
+                                                      zerolinecolor=C_ZERO,
+                                                      title="|Delta| × 100"))
+    add_spot_line(fig, spot)
+    return fig

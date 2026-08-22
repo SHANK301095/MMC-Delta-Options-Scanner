@@ -43,6 +43,7 @@ Detailed setup, module-by-module guide aur troubleshooting:
 | 🌊 **IV Skew** | Volatility smile, 25Δ risk reversal / butterfly, term structure |
 | 🎯 **Payoff Builder** | 8 preset strategies, executable fills, expiry + T+0 curves |
 | 🔎 **Mispricing** | Put-call parity, vertical bounds, butterfly convexity, box spreads |
+| 📐 **Delta Filter** | Delta band (0–100) se strike chuniye, live bid/ask ke saath |
 
 ---
 
@@ -64,6 +65,12 @@ chauthai strikes ka spread 20%+ ho, wahan mark-priced edge sirf kaagzi hai.
 **3. Theta ek instantaneous derivative hai, ek din ka burn nahi.**
 Har burn number option ko future timestamp par **dobara price karke** nikala
 jaata hai. Expiry ke din analytic theta aur asli burn mein 50%+ farak aata hai.
+
+**4. Delta band absolute delta par lagta hai.**
+"25 delta" maangne par 0.25 delta call *aur* −0.25 delta put dono aate hain —
+wahi market convention hai. Aur jis contract ka delta hi unknown hai wo band
+se bahar jaata hai, kyunki delta se chunav karte waqt "shayad match karta hai"
+koi jawab nahi hai.
 
 Aur time-to-expiry hamesha **exact seconds** mein hai, whole days mein nahi —
 Delta India options 17:30 IST (12:00 UTC) par settle hote hain, aur whole-day
@@ -98,13 +105,15 @@ har page ke **🩺 Diagnostics** expander mein dikhta hai.
 
 ```bash
 pip install -r requirements.txt pytest
-python -m pytest tests/ -v          # 138 tests
+python -m pytest tests/ -v          # 165 tests
 python tests/check_read_only.py     # read-only guard
 ```
 
-Tests network ko chhoote bilkul nahi — sirf pure math aur parsing layer cover
-karte hain (Black-Scholes parity/greeks vs finite differences, fee cap
-behaviour, Delta ka mixed-type JSON parsing, aur payoff tail-risk).
+Tests network ko chhoote bilkul nahi. Pure layers ke alawa har page ek
+synthetic Black-Scholes chain par **sach mein render** hota hai
+(`tests/test_pages_smoke.py`), kyunki ek page column ka naam galat likhne ya
+format string tod dene par bhi import ho jaata hai — crash tabhi hota hai jab
+user use kholta hai.
 
 CI har push par Python 3.10 / 3.11 / 3.12 par yehi chalata hai.
 

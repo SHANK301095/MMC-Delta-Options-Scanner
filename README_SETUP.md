@@ -67,7 +67,8 @@ MMC_Delta_Scanner/
 │   ├── 2_Theta_Decay.py
 │   ├── 3_IV_Skew.py
 │   ├── 4_Payoff_Builder.py
-│   └── 5_Mispricing.py
+│   ├── 5_Mispricing.py
+│   └── 6_Delta_Filter.py
 └── mmc_settings.json        ← Save dabane par khud banegi
 ```
 
@@ -148,6 +149,32 @@ Teen cheezein jo aam payoff tools galat karte hain, yahan sahi hain:
 
 Break-evens, max profit/loss, unlimited-risk warning aur net greeks sab automatic.
 
+### 📐 Delta Filter + Live Rates
+
+Delta ko primary control banata hai, strike ko result.
+
+Slider `|Δ| × 100` par chalta hai — 0 se 100. Upar preset buttons hain
+(5-15Δ deep OTM, 15-25Δ classic short, 40-60Δ ATM waqaira), ya khud range
+kheench lijiye.
+
+Band **absolute** delta par lagta hai: 20-30 maangne par 0.25 delta call aur
+−0.25 delta put dono aayenge. Yahi market convention hai — "25 delta put"
+ka matlab delta −0.25 hota hai.
+
+Table mein har contract ke live rate hain: Bid, Ask, Mark, aur sidebar ke price
+basis se **Buy @** / **Sell @**. Uske saath ₹ premium per lot, θ ₹/lot/day,
+round-trip cost, aur **Net θ %/day**.
+
+Neeche ka chart batata hai ki aapki band chain par kahan padti hai — delta ek
+abstract number hai, aur ye dikha deta hai ki 20-30Δ maangne par aap spot se
+kitne door ja rahe hain.
+
+⚠️ Do baatein:
+- Agar band mein contracts the par table khaali hai, to wo liquidity filter mein
+  nikle hain. Metric "Liquidity ne hataye" wahi ginta hai.
+- **Delta probability nahi hai.** 25Δ ka matlab *lagbhag* 25% chance hai ki
+  option ITM expire hoga — approximation hai, guarantee nahi.
+
 ### 🔎 Mispricing Scanner
 
 Chaar model-free arbitrage bounds — inme koi volatility assumption hai hi nahi:
@@ -220,6 +247,7 @@ Delta India options **17:30 IST = 12:00 UTC** par expire hote hain. Scanner ye e
 | `Network error` | Internet / VPN / firewall check karein |
 | `HTTP 403 - CDN block` | VPN band karke try karein |
 | Chain khali dikh rahi hai | Liquidity filter bahut tight hai — spread limit badhaiye |
+| Delta Filter khali hai | Band mein contract nahi, ya sab liquidity filter mein nikal gaye — page khud batata hai kaunsi wajah hai |
 | Numbers ajeeb lag rahe hain | Diagnostics expander kholiye, screenshot bhejiye |
 | Libraries install nahi ho rahi | `.venv` folder delete karke `.bat` dobara chalaiye |
 | Settings yaad nahi rah rahi | Sidebar mein **💾 Save** dabaiye (ek baar) |
