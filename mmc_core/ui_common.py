@@ -21,6 +21,7 @@ from . import delta_api as api
 from . import options_math as om
 from . import fees as fx
 from . import settings_store as store
+from . import volatility as vx
 
 UTC = timezone.utc
 
@@ -787,3 +788,92 @@ def render_liquidity_controls(prefix: str = "",
         "max_moneyness_pct": float(max_moneyness),
         "delta_band": (float(band[0]), float(band[1])),
     }
+
+
+# --------------------------------------------------------------------------
+# Volatility index — chain se VIX-jaisa number
+# --------------------------------------------------------------------------
+
+def chain_quotes(df: pd.DataFrame) -> tuple:
+    """Normalized chain ko volatility engine ki shakl mein badliye.
+
+    Returns (calls, puts) — dono {strike: {"bid", "ask"}}.
+
+    Yahan mark price jaan-boojh kar nahi bheji jaati. VIX formula quoted
+    bid-ask midpoint par chalti hai; mark price exchange ka apna model output
+    hai, aur usse "model-free" index banaana apne aap mein virodhabhas hai.
+    """
+    calls, puts = {}, {}
+    if df.empty:
+        return calls, puts
+
+    for _, row in df.iterrows():
+        side = calls if bool(row["is_call"]) else puts
+        side[float(row["strike"])] = {
+            "bid": float(row["best_bid"]),
+            "ask": float(row["best_ask"]),
+        }
+    return calls, puts
+
+
+def load_volatility_index(products: pd.DataFrame, settings: dict,
+                          now: datetime, max_fetch: int = 4) -> dict:
+    """Selected underlying ka VIX-style index, live chain se.
+
+    Sirf un expiries ko fetch karta hai jo 30 din ke sabse kareeb hain — index
+    ko bas do chahiye jo 30 din ko bracket karein, aur baaki fetch karna Delta
+    ka rate-limit quota bina wajah kharch karna hai. Extra do fallback ke liye
+    hain, kyunki ek expiry ki chain itni patli ho sakti hai ki usse valid
+    variance nikle hi na.
+
+    Returns volatility.volatility_index() ka output, plus "per_expiry" —
+    har fetch ki gayi expiry ka apna vol aur diagnostics.
+    """
+    t_target = vx.TARGET_DAYS / 365.0
+    candidates = sorted(settings.get("expiries", []),
+                        key=lambda e: abs(e["seconds_left"] / om.SECONDS_PER_YEAR
+                                          - t_target))[:max_fetch]
+
+    bucket = api.make_cache_bucket(settings["refresh_seconds"])
+    per_expiry = []
+
+    for exp in candidates:
+        t_years = om.years_to_expiry(now, exp["expiry_utc"])
+        entry = {
+            "label": exp["expiry_utc"].astimezone(api.IST).strftime("%d-%b-%Y"),
+            "days": t_years * 365.0,
+            "t_years": t_years,
+            "sigma2": float("nan"),
+            "strikes_used": 0,
+            "forward": float("nan"),
+            "reason": None,
+        }
+
+        try:
+            raw = api.fetch_chain_raw(settings["underlying"], exp["api_date"], bucket)
+        except api.DeltaApiError as exc:
+            entry["reason"] = str(exc)
+            per_expiry.append(entry)
+            continue
+
+        sub = api.normalize_chain(raw, products)
+        if sub.empty:
+            entry["reason"] = "is expiry par koi ticker nahi mila"
+            per_expiry.append(entry)
+            continue
+
+        calls, puts = chain_quotes(sub)
+        result = vx.expiry_variance(calls, puts, t_years, settings["risk_free"])
+        entry.update({
+            "sigma2": result["sigma2"],
+            "strikes_used": result["strikes_used"],
+            "forward": result["forward"],
+            "k0": result.get("k0", float("nan")),
+            "coverage": result.get("coverage"),
+            "reason": result["reason"],
+        })
+        per_expiry.append(entry)
+
+    index = vx.volatility_index(per_expiry)
+    index["per_expiry"] = sorted(per_expiry, key=lambda e: e["days"])
+    return index

@@ -113,6 +113,7 @@ PAGES = [
     "pages/4_Payoff_Builder.py",
     "pages/5_Mispricing.py",
     "pages/6_Delta_Filter.py",
+    "pages/7_Vol_Regime.py",
 ]
 
 
@@ -157,3 +158,38 @@ def test_widening_the_band_never_shrinks_the_result(offline_chain):
         counts[band] = len(at.dataframe[0].value) if at.dataframe else 0
 
     assert counts[(40, 45)] <= counts[(20, 60)] <= counts[(0, 100)]
+
+
+# --------------------------------------------------- volatility regime
+
+VOL_PAGE = REPO_ROOT / "pages" / "7_Vol_Regime.py"
+
+
+def test_vol_regime_page_reports_in_regime_when_the_band_contains_the_index(
+        offline_chain):
+    """Fixture chain 55% vol par bani hai, to 40-80 band ke andar aana chahiye."""
+    at = AppTest.from_file(str(VOL_PAGE), default_timeout=120)
+    at.session_state["vol_regime_band"] = (40, 80)
+    at.run()
+    assert not at.exception
+    assert at.success, "in-regime hone par success banner aana chahiye"
+
+
+def test_vol_regime_page_warns_when_the_index_is_outside_the_band(offline_chain):
+    at = AppTest.from_file(str(VOL_PAGE), default_timeout=120)
+    at.session_state["vol_regime_band"] = (5, 10)
+    at.run()
+    assert not at.exception
+    assert at.warning, "band ke bahar hone par warning aani chahiye"
+    assert not at.success
+
+
+def test_vol_regime_headline_is_close_to_the_vol_the_fixture_was_built_from(
+        offline_chain):
+    """Poore stack ka round trip: BS chain -> tickers -> normalize -> index."""
+    at = AppTest.from_file(str(VOL_PAGE), default_timeout=120).run()
+    assert not at.exception
+
+    headline = next(m for m in at.metric if m.label.endswith("VIX"))
+    assert headline.value != "—", "index compute hi nahi hua"
+    assert float(headline.value) == pytest.approx(SIGMA * 100, rel=0.10)

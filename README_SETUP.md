@@ -68,7 +68,8 @@ MMC_Delta_Scanner/
 │   ├── 3_IV_Skew.py
 │   ├── 4_Payoff_Builder.py
 │   ├── 5_Mispricing.py
-│   └── 6_Delta_Filter.py
+│   ├── 6_Delta_Filter.py
+│   └── 7_Vol_Regime.py
 └── mmc_settings.json        ← Save dabane par khud banegi
 ```
 
@@ -282,6 +283,34 @@ Delta India options **17:30 IST = 12:00 UTC** par expire hote hain. Scanner ye e
 | Settings save | ❌ | ✅ |
 | Break-even detection | — | ✅ dedupe-safe |
 | Arbitrage checks | ❌ | ✅ 4 model-free bounds |
+
+---
+
+### 🌡️ Volatility Regime
+
+Poore market ki volatility ka ek number — India VIX jaisa, lekin BTC/ETH ke liye.
+
+Ye ATM IV nahi hai. ATM IV ek strike ka number hai; ye poori OTM chain se banta
+hai, wings sameth — theek waise jaise CBOE VIX aur India VIX bante hain. Koi
+Black-Scholes nahi, koi smile fit nahi: sirf quoted bid-ask midpoints aur payoff
+structure.
+
+**Regime gate:** upar band set kijiye (default 40-80). Index band ke andar hai
+to ✅ regime chal raha hai. Bahar hai to page saaf batata hai kis taraf aur
+kitna door — chahe chain par setups kitne bhi acche dikh rahe hon.
+
+**Do cheezein jo page khud batata hai:**
+
+- **Constant maturity mili ya nahi.** Index 30 din par hona chahiye, warna aaj
+  aur kal ka number compare karne layak nahi rehta. Agar chain par 30 din ko
+  bracket karne wali do expiries nahi hain, to page extrapolate NAHI karta —
+  jo maturity sach mein hai wahi dikhata hai, saaf label ke saath.
+- **Chain kitni chaudi hai.** Tang chain index ko kam dikhati hai. 90 din par
+  ±15% strike coverage 55% vol ko 43.5% bata degi. Page har expiry ki coverage
+  dikhata hai aur tang hone par warn karta hai.
+
+⚠️ VIX 30 din ki *expected* chaal batata hai, direction nahi. Uncha VIX ye
+nahi kehta ki market girega — sirf ye ki chaal badi hogi, kisi bhi taraf.
 
 ---
 
