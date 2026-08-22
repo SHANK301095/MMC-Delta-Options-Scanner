@@ -44,6 +44,7 @@ Detailed setup, module-by-module guide aur troubleshooting:
 | 🎯 **Payoff Builder** | 8 preset strategies, executable fills, expiry + T+0 curves |
 | 🔎 **Mispricing** | Put-call parity, vertical bounds, butterfly convexity, box spreads |
 | 📐 **Delta Filter** | Delta band (0–100) se strike chuniye, live bid/ask ke saath |
+| 🌡️ **Vol Regime** | VIX-style index (30-din constant maturity) + regime gate |
 
 ---
 
@@ -66,7 +67,21 @@ chauthai strikes ka spread 20%+ ho, wahan mark-priced edge sirf kaagzi hai.
 Har burn number option ko future timestamp par **dobara price karke** nikala
 jaata hai. Expiry ke din analytic theta aur asli burn mein 50%+ farak aata hai.
 
-**4. Delta band absolute delta par lagta hai.**
+**4. Volatility index chain se banta hai, kisi ek strike se nahi.**
+Delta koi India-VIX jaisa index publish nahi karta, par uski zaroorat bhi nahi:
+VIX apne aap mein option chain se hi nikaala jaata hai. `mmc_core/volatility.py`
+CBOE ki model-free variance formula lagata hai — har OTM strike ka quoted
+midpoint, `1/K²` weight, zero-bid truncation — phir do expiries ke beech
+**total variance** par interpolate karke 30-din constant maturity par le aata
+hai. Constant maturity ke bina aaj ka aur kal ka number compare karne layak
+nahi rehta.
+
+Index apni **strike coverage** ke saath report hota hai, kyunki tang chain
+number ko chup-chaap neeche le jaati hai (90 din par ±15% coverage 55% vol ko
+43.5% dikhati hai). Regime gate ke liye ye chupana khatarnak hota: kam VIX
+padha jaata "vol saste hain", jabki wajah sirf chhoti chain thi.
+
+**5. Delta band absolute delta par lagta hai.**
 "25 delta" maangne par 0.25 delta call *aur* −0.25 delta put dono aate hain —
 wahi market convention hai. Aur jis contract ka delta hi unknown hai wo band
 se bahar jaata hai, kyunki delta se chunav karte waqt "shayad match karta hai"
@@ -105,7 +120,7 @@ har page ke **🩺 Diagnostics** expander mein dikhta hai.
 
 ```bash
 pip install -r requirements.txt pytest
-python -m pytest tests/ -v          # 165 tests
+python -m pytest tests/ -v          # 218 tests
 python tests/check_read_only.py     # read-only guard
 ```
 
