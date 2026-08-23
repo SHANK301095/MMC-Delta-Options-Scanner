@@ -22,6 +22,7 @@ from . import options_math as om
 from . import fees as fx
 from . import settings_store as store
 from . import theme
+from . import url_state
 from . import volatility as vx
 
 UTC = timezone.utc
@@ -54,9 +55,18 @@ DEFAULTS = {
 
 
 def _bootstrap_settings() -> None:
-    """Load persisted settings into session_state exactly once per session."""
+    """Session ke shuru mein ek baar saved view ko session_state mein laiye.
+
+    Do source hain aur unki tarteeb maayne rakhti hai. URL pehle padha jaata
+    hai kyunki wo is browser ka apna hai aur usme woh view hai jo user ne
+    kholna chaha; local settings file uske baad, sirf un keys ke liye jo URL
+    mein aayi hi nahi. Ulta karne par ek shared link kholte hi machine ke
+    purane settings usse overwrite kar dete.
+    """
     if st.session_state.get("_mmc_bootstrapped"):
         return
+
+    from_url = url_state.decode(dict(st.query_params))
     saved = store.load_settings()
     for key, val in saved.items():
         if key in DEFAULTS:
@@ -68,7 +78,27 @@ def _bootstrap_settings() -> None:
             if key == "price_mode" and val not in PRICE_MODES:
                 continue
             st.session_state[key] = val
+
+    # URL jeetta hai — wo aakhir mein lagta hai.
+    for key, val in from_url.items():
+        st.session_state[key] = val
+
     st.session_state["_mmc_bootstrapped"] = True
+
+
+def sync_url() -> None:
+    """Maujooda view ko URL mein likh dijiye, taaki reload aur share dono chalein.
+
+    Sirf tab likhta hai jab kuch sach mein badla ho — har rerun par query params
+    set karna browser history ko bhar deta hai aur back button bekaar ho jaata
+    hai.
+    """
+    state = {k: st.session_state.get(k) for k in
+             ("underlying", "expiry_api_date", "price_mode", "usdinr",
+              "delta_band_main", "vol_regime_band")}
+    wanted = url_state.encode(state)
+    if dict(st.query_params) != wanted:
+        st.query_params.from_dict(wanted)
 
 # --------------------------------------------------------------------------
 # Page chrome
@@ -93,14 +123,25 @@ def _ss(key):
 # Products loader with friendly failure
 # --------------------------------------------------------------------------
 
+def _retry_button(key: str) -> None:
+    """Fail hone par ek asli raasta dijiye, sirf salaah nahi.
+
+    Pehle yahan likha tha "sidebar mein clear cache dabaiye" — lekin jab chain
+    load hi nahi hui to sidebar bana hi nahi hota. Isliye button yahin hona
+    chahiye, error ke saath.
+    """
+    if st.button("🔄 Dobara koshish karein", key=key, type="primary"):
+        st.cache_data.clear()
+        st.rerun()
+
+
 def load_products():
     """Returns the products DataFrame, or None after showing an error box."""
     try:
         return api.fetch_option_products()
     except api.DeltaApiError as exc:
         st.error(f"**Contract list load nahi hui**\n\n{exc}")
-        st.info("Sidebar mein **Clear cache & reload** dabaiye, ya 1-2 minute baad "
-                "page refresh karein.")
+        _retry_button("retry_products")
         return None
 
 
@@ -290,25 +331,41 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
 
     col_c, col_d = st.sidebar.columns(2)
     with col_c:
-        if st.button("\U0001f4be Save", width="stretch"):
-            ok = store.save_settings({k: st.session_state.get(k)
-                                      for k in store.PERSISTED_KEYS})
-            if ok:
-                st.sidebar.success("Settings save ho gayi.")
-            else:
-                st.sidebar.error("Save nahi hui (write permission?).")
+        # Save button sirf local run par. Shared deployment par wo aapka
+        # setting save nahi karta - wo SABKA setting badal deta hai, aur reboot
+        # par gayab bhi ho jaata hai. Wahan URL hi asli save hai.
+        if store.is_enabled():
+            if st.button("\U0001f4be Save", width="stretch"):
+                ok = store.save_settings({k: st.session_state.get(k)
+                                          for k in store.PERSISTED_KEYS})
+                if ok:
+                    st.sidebar.success("Settings save ho gayi.")
+                else:
+                    st.sidebar.error("Save nahi hui (write permission?).")
+        else:
+            st.caption("Bookmark = save")
     with col_d:
         if st.button("\u267b\ufe0f Reset", width="stretch"):
             store.clear_settings()
             for k in list(DEFAULTS):
                 st.session_state.pop(k, None)
-            st.session_state.pop("_mmc_bootstrapped", None)
+            for k in ("_mmc_bootstrapped", "delta_band_main", "vol_regime_band"):
+                st.session_state.pop(k, None)
+            st.query_params.clear()
             st.rerun()
+
+    if not store.is_enabled():
+        st.sidebar.caption(
+            "Aapka view URL mein hai — page reload karne par wahi wapas aayega, "
+            "aur wahi link kisi ko bhej dijiye to unhe bilkul yahi screen dikhegi."
+        )
 
     st.sidebar.markdown(
         theme.badge("READ-ONLY BUILD", "good"), unsafe_allow_html=True)
     st.sidebar.caption("Koi API key, secret ya order-placement code nahi — "
                        "CI har push par ise verify karta hai.")
+
+    sync_url()
 
     return {
         "underlying": underlying,
@@ -327,19 +384,40 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
 
 
 def maybe_auto_refresh(settings: dict) -> None:
-    """Call at the very BOTTOM of a page. Sleeps, then reruns.
+    """Page ke bilkul NEECHE call kijiye. Naya data aane par app rerun karta hai.
 
-    Deliberately not a background thread: Streamlit reruns the whole script
-    top-to-bottom anyway and a thread would fight the script runner. The sleep
-    sits after all rendering, so a fully drawn page stays on screen for the
-    whole interval.
+    Pehle ye `time.sleep(interval)` karta tha. Wo do tarah se mehnga tha: har
+    viewer ka script thread poore interval ke liye soya rehta tha (deployed app
+    par chaar log auto-refresh on kar dein to server ka dum nikal jaata), aur
+    us dauran har click queue ho jaata tha — UI atka hua lagta tha.
+
+    Ab ek chhota timer fragment chalta hai. Fragment apne aap re-run hota hai
+    bina main script ko roke, aur app ko sirf TAB rerun karta hai jab data ka
+    refresh window sach mein aage badh chuka ho. Isse na koi thread sota hai,
+    na hi ek hi data par bekaar rerun hote hain.
     """
     if not settings.get("auto_refresh"):
         return
+
     interval = max(5, int(settings.get("refresh_seconds", 15)))
-    st.caption(f"\u23f1\ufe0f Auto-refresh ON \u2014 agla refresh ~{interval}s mein")
-    time.sleep(interval)
-    st.rerun()
+
+    if not hasattr(st, "fragment"):
+        # Bahut purane Streamlit par timer fragment nahi hai. Aisi soorat mein
+        # blocking sleep se behtar hai auto-refresh hi na chalana — user
+        # manually refresh kar sakta hai, aur server bacha rehta hai.
+        st.caption("⏱️ Auto-refresh ke liye naya Streamlit chahiye — "
+                   "abhi manually Refresh dabaiye.")
+        return
+
+    @st.fragment(run_every=interval)
+    def _tick():
+        bucket = api.make_cache_bucket(interval)
+        rendered = st.session_state.get("_mmc_rendered_bucket")
+        if rendered is not None and bucket != rendered:
+            st.rerun(scope="app")
+        st.caption(f"⏱️ Auto-refresh ON · har {interval}s")
+
+    _tick()
 
 
 # --------------------------------------------------------------------------
@@ -659,6 +737,7 @@ def load_enriched_chain(products: pd.DataFrame, settings: dict):
                                   settings["expiry"]["api_date"], bucket)
     except api.DeltaApiError as exc:
         st.error(f"**Live chain load nahi hui**\n\n{exc}")
+        _retry_button("retry_chain")
         return None, None
 
     df = api.normalize_chain(raw, products)
@@ -676,6 +755,9 @@ def load_enriched_chain(products: pd.DataFrame, settings: dict):
     contract_value = api.resolve_contract_value(df, settings["underlying"])
     calib = calibrate(df, spot, contract_value, now, settings)
     enriched = enrich_chain(df, spot, contract_value, now, settings, calib)
+
+    # Timer fragment ise padh kar decide karta hai ki naya data aaya ya nahi.
+    st.session_state["_mmc_rendered_bucket"] = bucket
 
     context = {
         "now": now,

@@ -211,3 +211,50 @@ def test_vol_regime_headline_is_close_to_the_vol_the_fixture_was_built_from(
     value = _hero_value(at)
     assert value is not None, "VIX hero render hi nahi hua"
     assert value == pytest.approx(SIGMA * 100, rel=0.10)
+
+
+# ------------------------------------------------- auto-refresh & links
+
+def test_auto_refresh_does_not_block_or_break_the_page(offline_chain):
+    """Pehle ye `time.sleep(interval)` karta tha — har viewer ka thread poore
+    interval ke liye soya rehta tha aur click queue ho jaate the. Ab ek timer
+    fragment hai; page normal render hona chahiye."""
+    at = AppTest.from_file(str(REPO_ROOT / "app.py"), default_timeout=120)
+    at.session_state["auto_refresh"] = True
+    at.session_state["refresh_seconds"] = 5
+    at.run()
+    assert not at.exception
+
+
+def test_a_shared_link_restores_the_view(offline_chain):
+    """Link bhejne ka poora point: kholne wale ko wahi screen mile."""
+    at = AppTest.from_file(str(DELTA_PAGE), default_timeout=120)
+    at.query_params["u"] = "BTC"
+    at.query_params["p"] = "mark"
+    at.query_params["fx"] = "91"
+    at.query_params["d"] = "40-60"
+    at.run()
+    assert not at.exception
+    assert tuple(at.session_state["delta_band_main"]) == (40, 60)
+    assert at.session_state["price_mode"] == "Mark"
+    assert at.session_state["usdinr"] == 91.0
+
+
+def test_a_link_with_junk_params_still_opens(offline_chain):
+    """Kharab param se app default par chale, crash na kare."""
+    at = AppTest.from_file(str(DELTA_PAGE), default_timeout=120)
+    at.query_params["u"] = "<script>alert(1)</script>"
+    at.query_params["fx"] = "abc"
+    at.query_params["d"] = "junk"
+    at.run()
+    assert not at.exception
+
+
+def test_a_link_naming_an_expiry_that_no_longer_exists_falls_back(offline_chain):
+    """Expiry beet jaati hain, par purane link ghoomte rehte hain. Aise link ko
+    maujooda expiry par khulna chahiye, tootna nahi."""
+    at = AppTest.from_file(str(DELTA_PAGE), default_timeout=120)
+    at.query_params["e"] = "01-01-2020"
+    at.run()
+    assert not at.exception
+    assert at.session_state["expiry_api_date"] != "01-01-2020"
