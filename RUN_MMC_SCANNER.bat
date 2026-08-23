@@ -45,6 +45,9 @@ echo.
 echo Browser apne aap khulega. Band karne ke liye is window mein Ctrl+C dabaiye.
 echo.
 
+REM Local run = ek hi user, isliye settings file safe hai.
+set MMC_LOCAL_SETTINGS=1
+
 python -m streamlit run app.py
 
 pause

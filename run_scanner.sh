@@ -34,4 +34,7 @@ echo
 echo "Browser apne aap khulega. Band karne ke liye Ctrl+C dabaiye."
 echo
 
+# Local run = ek hi user, isliye settings file safe hai.
+export MMC_LOCAL_SETTINGS=1
+
 exec python -m streamlit run app.py

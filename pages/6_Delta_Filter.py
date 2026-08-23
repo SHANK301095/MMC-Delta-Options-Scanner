@@ -91,6 +91,9 @@ band = st.slider(
 
 liq["delta_band"] = (float(band[0]), float(band[1]))
 
+# Band is page par sidebar ke baad set hota hai, to URL dobara sync kijiye.
+ui.sync_url()
+
 filtered = ui.apply_liquidity_filter(df, **liq)
 
 # --------------------------------------------------------------------------

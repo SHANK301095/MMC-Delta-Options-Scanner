@@ -33,6 +33,29 @@ Detailed setup, module-by-module guide aur troubleshooting:
 
 ---
 
+## Aapka view URL mein hai
+
+Jo screen aap dekh rahe hain — underlying, expiry, price basis, USD/INR rate,
+delta band, VIX band — wo URL mein likhi rehti hai:
+
+```
+…/Delta_Filter?u=BTC&e=29-08-2026&p=realistic&fx=88&d=15-25
+```
+
+Matlab reload par wahi view wapas aata hai, bookmark kaam karta hai, aur wahi
+link kisi aur ko bhej dijiye to unhe **bilkul wahi screen** dikhegi.
+
+Ye ek server-side settings file se behtar hai. Ek Streamlit app **ek hi
+process** hota hai jise sab visitors share karte hain, to server par "save"
+kiya gaya setting aapka nahi, *sabka* setting ban jaata. URL har browser ka
+apna hai. Isliye file store sirf tab chalta hai jab `MMC_LOCAL_SETTINGS=1` ho —
+launcher scripts wo set karte hain, cloud deployment nahi karta.
+
+URL params bahar se aate hain, isliye har value validate hoti hai aur galat
+value chup-chaap gir jaati hai: `?u=<script>` par app default underlying par
+chalta hai. Beeti hui expiry wali purani link maujooda expiry par khulti hai,
+tootati nahi.
+
 ## Modules
 
 | Page | Kya karta hai |
@@ -164,7 +187,7 @@ har page ke **🩺 Diagnostics** expander mein dikhta hai.
 
 ```bash
 pip install -r requirements.txt pytest
-python -m pytest tests/ -v          # 266 tests
+python -m pytest tests/ -v          # 354 tests
 python tests/check_read_only.py     # read-only guard
 ```
 
