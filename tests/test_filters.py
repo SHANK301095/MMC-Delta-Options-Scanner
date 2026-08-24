@@ -1,8 +1,8 @@
-"""Chain filters ke tests — khaas kar delta band.
+"""Tests for the chain filters, and the delta band in particular.
 
-Delta band se strike chunna options selling ka standard tarika hai, aur uski
-har edge case chup-chaap galat jawab de sakti hai: put ka delta negative hota
-hai, kuch rows ka delta hota hi nahi, aur band "off" bhi ho sakta hai.
+Selecting strikes by delta band is the standard way to sell options, and each
+of its edge cases can produce a quietly wrong answer: a put's delta is negative,
+some rows have no delta at all, and the band can be switched off.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from mmc_core import ui_common as ui
 
 
 def _chain(deltas, **over) -> pd.DataFrame:
-    """Minimal enriched chain — filter ko jo columns chahiye bas wahi."""
+    """A minimal enriched chain - only the columns the filter needs."""
     n = len(deltas)
     frame = pd.DataFrame({
         "strike": [90_000.0 + 1000 * i for i in range(n)],
@@ -38,7 +38,7 @@ OPEN = {"max_spread_pct": 100.0, "min_oi": 0.0, "min_volume": 0.0,
 # ------------------------------------------------------------- delta band
 
 def test_band_matches_calls_and_puts_at_the_same_absolute_delta():
-    """25 maangne par 0.25 call aur −0.25 put dono aane chahiye."""
+    """Asking for 25 must return both the 0.25 call and the -0.25 put."""
     df = _chain([0.25, -0.25, 0.60, -0.60])
     out = ui.apply_liquidity_filter(df, delta_band=(20.0, 30.0), **OPEN)
     assert sorted(out["delta"].tolist()) == [-0.25, 0.25]
@@ -62,14 +62,14 @@ def test_no_band_filters_nothing():
 
 
 def test_reversed_band_is_treated_as_a_range_not_as_empty():
-    """(30, 20) bhejne par user ka matlab wahi hai jo (20, 30) ka hai."""
+    """Passing (30, 20) means the same thing the user meant by (20, 30)."""
     df = _chain([0.25, 0.60])
     out = ui.apply_liquidity_filter(df, delta_band=(30.0, 20.0), **OPEN)
     assert out["delta"].round(2).tolist() == [0.25]
 
 
 def test_rows_with_unknown_delta_are_excluded_when_a_band_is_set():
-    """Delta se chunav kiya hai to 'shayad match karta hai' rakhna galat hai."""
+    """Once the choice is made by delta, keeping a "might match" row is wrong."""
     df = _chain([0.25, None, -0.25])
     out = ui.apply_liquidity_filter(df, delta_band=(20.0, 30.0), **OPEN)
     assert len(out) == 2
@@ -106,7 +106,7 @@ def test_band_mask_without_a_delta_column_claims_nothing():
 # ------------------------------------------- band + liquidity interaction
 
 def test_delta_band_composes_with_the_liquidity_filters():
-    """Band mein hona kaafi nahi — contract tradable bhi hona chahiye."""
+    """Being in the band is not enough - the contract must also be tradable."""
     df = _chain([0.25, -0.25], spread_pct=[5.0, 80.0])
     out = ui.apply_liquidity_filter(
         df, delta_band=(20.0, 30.0),

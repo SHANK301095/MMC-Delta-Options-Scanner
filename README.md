@@ -1,26 +1,25 @@
 # MMC Delta Options Scanner
 
-Delta Exchange India ke **BTC / ETH options** ka live scanner — option chain,
-theta decay, IV skew, payoff builder aur model-free arbitrage checks, sab ek
-Streamlit app mein.
+A live options scanner for **BTC and ETH on Delta Exchange India**: the option
+chain, theta decay, IV skew, a payoff builder, model-free arbitrage checks, a
+delta-band filter and a VIX-style volatility regime gate — in one Streamlit app.
 
-**Poori tarah read-only.** Koi API key nahi, koi secret nahi, koi order-placement
-code nahi. App sirf Delta ke do public endpoints padhta hai (`/v2/products` aur
-`/v2/tickers`) — aur CI har push par machine se ye verify karta hai
-([`tests/check_read_only.py`](tests/check_read_only.py)).
+**Entirely read-only.** No API key, no secrets, no order-placement code. The app
+reads two public endpoints (`/v2/products` and `/v2/tickers`), and CI verifies
+that on every push with [`tests/check_read_only.py`](tests/check_read_only.py).
 
 ---
 
-## Chalane ka tarika
+## Running it
 
-**Windows:** `RUN_MMC_SCANNER.bat` par double-click.
+**Windows:** double-click `RUN_MMC_SCANNER.bat`
 **Linux / macOS:** `./run_scanner.sh`
 
-Dono pehli baar khud hi `.venv` banayenge, libraries install karenge aur browser
-mein `http://localhost:8501` khol denge. Pehli baar 2-4 minute, uske baad
-~10 second.
+Both create a `.venv`, install dependencies and open
+`http://localhost:8501` on first run — two to four minutes the first time, about
+ten seconds afterwards.
 
-Manual chalana ho to:
+To run it manually:
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -28,141 +27,146 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Detailed setup, module-by-module guide aur troubleshooting:
-**[README_SETUP.md](README_SETUP.md)**
+There is nothing to configure. The API needs no credentials, so there are no
+secrets to set and no environment file to create.
+
+Full setup instructions, a module-by-module guide and troubleshooting are in
+**[README_SETUP.md](README_SETUP.md)**.
 
 ---
 
-## Aapka view URL mein hai
+## Your view lives in the URL
 
-Jo screen aap dekh rahe hain — underlying, expiry, price basis, USD/INR rate,
-delta band, VIX band — wo URL mein likhi rehti hai:
+Everything you are looking at — underlying, expiry, price basis, USD/INR rate,
+delta band, volatility band — is written into the query string:
 
 ```
 …/Delta_Filter?u=BTC&e=29-08-2026&p=realistic&fx=88&d=15-25
 ```
 
-Matlab reload par wahi view wapas aata hai, bookmark kaam karta hai, aur wahi
-link kisi aur ko bhej dijiye to unhe **bilkul wahi screen** dikhegi.
+So reloading returns you to the same view, a bookmark works, and sending someone
+that link shows them **exactly the same screen**.
 
-Ye ek server-side settings file se behtar hai. Ek Streamlit app **ek hi
-process** hota hai jise sab visitors share karte hain, to server par "save"
-kiya gaya setting aapka nahi, *sabka* setting ban jaata. URL har browser ka
-apna hai. Isliye file store sirf tab chalta hai jab `MMC_LOCAL_SETTINGS=1` ho —
-launcher scripts wo set karte hain, cloud deployment nahi karta.
+This is deliberately better than a server-side settings file. A Streamlit app is
+**one process shared by every visitor**, so a setting "saved" on the server
+becomes everyone's setting. A URL belongs to a single browser. The file store
+therefore runs only when `MMC_LOCAL_SETTINGS=1` is set — which the launcher
+scripts do and a cloud deployment does not.
 
-URL params bahar se aate hain, isliye har value validate hoti hai aur galat
-value chup-chaap gir jaati hai: `?u=<script>` par app default underlying par
-chalta hai. Beeti hui expiry wali purani link maujooda expiry par khulti hai,
-tootati nahi.
-
-## Modules
-
-| Page | Kya karta hai |
-|---|---|
-| 🏠 **Home** | Expiry snapshot, PCR, chain-health badge |
-| 📈 **Live Chain** | Call/Put chain, liquidity filter, OI profile, cost-of-trading table |
-| ⏳ **Theta Decay** | Repricing-based burn ranking, hour-by-hour curve, multi-leg basket |
-| 🌊 **IV Skew** | Volatility smile, 25Δ risk reversal / butterfly, term structure |
-| 🎯 **Payoff Builder** | 8 preset strategies, executable fills, expiry + T+0 curves |
-| 🔎 **Mispricing** | Put-call parity, vertical bounds, butterfly convexity, box spreads |
-| 📐 **Delta Filter** | Delta band (0–100) se strike chuniye, live bid/ask ke saath |
-| 🌡️ **Vol Regime** | VIX-style index (30-din constant maturity) + regime gate |
+URL params arrive from outside, so every value is validated and a bad one is
+dropped silently rather than guessed at: `?u=<script>` simply opens on the
+default underlying. A link naming an expiry that has since passed opens on a
+current one instead of breaking.
 
 ---
 
-## Design decisions jo baaki screeners galat karte hain
+## Modules
 
-Ye teen cheezein is scanner ki asli value hain — inhi ke bina ek options tool
-chup-chaap galat numbers deta hai (crash nahi karta, jo aur khatarnak hai):
+| Page | What it does |
+|---|---|
+| 🏠 **Home** | Expiry snapshot, put/call ratio, chain-health badge |
+| 📈 **Live Chain** | Calls and puts side by side, liquidity filter, OI profile, cost-of-trading table |
+| ⏳ **Theta Decay** | Repricing-based burn ranking, hour-by-hour curve, multi-leg basket |
+| 🌊 **IV Skew** | Volatility smile, 25Δ risk reversal and butterfly, term structure |
+| 🎯 **Payoff Builder** | Eight preset strategies, executable fills, expiry and T+0 curves |
+| 🔎 **Mispricing** | Put-call parity, vertical bounds, butterfly convexity, box spreads |
+| 📐 **Delta Filter** | Pick strikes by delta band, with live bid/ask |
+| 🌡️ **Vol Regime** | VIX-style index at 30-day constant maturity, plus a regime gate |
 
-**1. Fees NOTIONAL par lagti hain, premium par nahi.**
-Delta India: `fee = min(notional × rate, premium × cap) × (1 + GST)`.
-Iska seedha asar — sasti OTM options par round-trip cost premium ka ~8% hota
-hai, ATM par ~1.5%. Jo scanner ye ignore karta hai wo dead ₹1 strikes ko
-"best theta yield" bata dega. Har table mein **net of cost** column hai.
+---
 
-**2. Mark price par koi fill nahi hota.**
-Default price basis "Realistic" hai — buy par ASK, sell par BID. Jis chain par
-chauthai strikes ka spread 20%+ ho, wahan mark-priced edge sirf kaagzi hai.
+## Design decisions other screeners get wrong
 
-**3. Theta ek instantaneous derivative hai, ek din ka burn nahi.**
-Har burn number option ko future timestamp par **dobara price karke** nikala
-jaata hai. Expiry ke din analytic theta aur asli burn mein 50%+ farak aata hai.
+These are the choices that make the numbers trustworthy. Without them an options
+tool does not crash — it quietly reports wrong figures, which is worse.
 
-**4. Volatility index chain se banta hai, kisi ek strike se nahi.**
-Delta koi India-VIX jaisa index publish nahi karta, par uski zaroorat bhi nahi:
-VIX apne aap mein option chain se hi nikaala jaata hai. `mmc_core/volatility.py`
-CBOE ki model-free variance formula lagata hai — har OTM strike ka quoted
-midpoint, `1/K²` weight, zero-bid truncation — phir do expiries ke beech
-**total variance** par interpolate karke 30-din constant maturity par le aata
-hai. Constant maturity ke bina aaj ka aur kal ka number compare karne layak
-nahi rehta.
+**1. Fees are charged on notional, not on premium.**
+On Delta India, `fee = min(notional × rate, premium × cap) × (1 + GST)`. The
+consequence: a round trip costs roughly 8% of premium on a cheap OTM option and
+about 1.5% at the money. A scanner that ignores this ranks dead ₹1 strikes as
+the "best theta yield". Every table here carries a **net of cost** column.
 
-Index apni **strike coverage** ke saath report hota hai, kyunki tang chain
-number ko chup-chaap neeche le jaati hai (90 din par ±15% coverage 55% vol ko
-43.5% dikhati hai). Regime gate ke liye ye chupana khatarnak hota: kam VIX
-padha jaata "vol saste hain", jabki wajah sirf chhoti chain thi.
+**2. Nothing fills at the mark price.**
+The default price basis is Realistic — the ASK when buying, the BID when
+selling. On a chain where a quarter of strikes carry a 20% spread, edge derived
+from the mark price exists only on paper.
 
-**5. Delta band absolute delta par lagta hai.**
-"25 delta" maangne par 0.25 delta call *aur* −0.25 delta put dono aate hain —
-wahi market convention hai. Aur jis contract ka delta hi unknown hai wo band
-se bahar jaata hai, kyunki delta se chunav karte waqt "shayad match karta hai"
-koi jawab nahi hai.
+**3. Theta is an instantaneous derivative, not a day's burn.**
+Every burn figure is produced by **repricing** the option at a future timestamp.
+On expiry day, analytic theta and the real burn differ by more than 50%.
 
-Aur time-to-expiry hamesha **exact seconds** mein hai, whole days mein nahi —
-Delta India options 17:30 IST (12:00 UTC) par settle hote hain, aur whole-day
-rounding expiry din ka premium ~8x overstate kar deti hai.
+**4. The volatility index is built from the chain, not from one strike.**
+Delta publishes no India-VIX equivalent, and none is needed: a VIX is derived
+from the option chain itself. [`mmc_core/volatility.py`](mmc_core/volatility.py)
+applies CBOE's model-free variance formula — each OTM strike's quoted midpoint,
+a `1/K²` weight, zero-bid truncation — then interpolates **total variance**
+between two expiries to reach 30-day constant maturity. Without constant
+maturity, today's reading and tomorrow's are not comparable.
+
+The index reports its own **strike coverage**, because a narrow chain biases it
+quietly downward (at 90 days, ±15% coverage reads 55% volatility as 43.5%). For
+a regime gate, hiding that would be dangerous: a low reading would be taken as
+"volatility is cheap" when the real cause was a small chain.
+
+**5. A delta band applies to absolute delta.**
+Asking for 25 returns both the 0.25 call and the −0.25 put — that is the market
+convention. A contract whose delta is unknown is excluded, because once the
+selection is made by delta, "might match" is not an answer.
+
+Time to expiry is always computed in **exact seconds**, never in whole days.
+Delta India options settle at 17:30 IST (12:00 UTC), and whole-day rounding
+overstates remaining premium roughly eightfold on expiry day.
 
 ---
 
 ## Design system
 
-Poore app ka look ek jagah se aata hai — `mmc_core/theme.py` (tokens, CSS,
-components) aur `.streamlit/config.toml` (Streamlit ke apne widgets). Dono ek
-hi hex values use karte hain, aur ek test unke beech drift pakadta hai.
+The entire look is defined in one place: [`mmc_core/theme.py`](mmc_core/theme.py)
+for tokens, CSS and components, and
+[`.streamlit/config.toml`](.streamlit/config.toml) for Streamlit's own widgets.
+Both use the same hex values, and a test fails if they drift apart.
 
-**Dark par tay hai, jaan-boojh kar.** Ye trading terminal hai; log ise ghanton
-dekhte hain. "Dono modes support kar lete hain" ka practical matlab hota hai
-dono aadhe-adhoore.
+**Dark is fixed, deliberately.** This is a terminal people read for hours.
+Supporting both modes in practice means doing both of them badly.
 
-**Har rang ka ek hi kaam hai:**
+**Every colour has exactly one job:**
 
-| Kaam | Kahan |
+| Job | Token |
 |---|---|
-| CALL / profit / decay favour mein | `ACCENT_UP` (aqua-green) |
-| PUT / loss | `ACCENT_DOWN` (red) |
+| Calls, profit, decay in your favour | `ACCENT_UP` |
+| Puts, loss | `ACCENT_DOWN` |
 | Analytical series (model curve, payoff) | `SERIES_1`, `SERIES_2` |
-| Spot, ATM, thresholds | recessive ink hairline — **koi hue nahi** |
-| Status: healthy / watch / risky / broken | `STATUS_*`, sirf badges aur gates |
+| Spot, ATM, thresholds | recessive ink — **no hue** |
+| healthy / watch / risky / broken | `STATUS_*`, badges and gates only |
 
-Status ke rang series se alag hain aur ek test dono sets ko disjoint rakhta hai.
-Reference lines ko hue isliye nahi milta ki wo asli series se muqabla karti aur
-ek free colour slot kha jaati.
+Status colours never overlap with series colours, and a test keeps the two sets
+disjoint. Reference lines take no hue, because a marker whose only job is to say
+"here" should not compete with real series or consume a colour slot.
 
-**Do niyam jo charts mein tode nahi jaate,** aur dono ke apne tests hain:
+**Two charting rules are never broken, and both are tested:**
 
-1. **Ek chart, ek y-axis.** Do scales ka alignment manmaana hota hai, isliye
-   chart ek aisa rishta dikha deta hai jo data mein hai hi nahi. `decay_curve`
-   pehle isi galti par tha — premium aur burn dono ₹ per lot hain, unhe alag
-   axes par rakhne ka koi kaaran nahi tha.
-2. **Calls aur puts kabhi sirf rang se alag nahi.** Green/red market ki bhasha
-   hai, badli nahi ja sakti — lekin validate karne par yahi jodi protanopia
-   mein sabse kam alag dikhti hai (CVD ΔE 6.5, warn band). Isliye har aise
-   chart mein ek doosra channel bhi hai: marker shape (circle vs diamond) ya
-   line dash.
+1. **One chart, one y-axis.** Two scales on one plot make their alignment
+   arbitrary, so the chart shows a relationship the data does not contain.
+   `decay_curve` once made this mistake — premium and burn are both rupees per
+   lot, so there was never a reason to separate them.
+2. **Calls and puts are never separated by colour alone.** Green and red are the
+   market's own language and cannot be changed, but that pair separates worst
+   under protanopia (measured CVD ΔE 6.5, inside the warn band). Every such
+   chart also differs by marker shape or line dash.
 
-Palette ek validator se paas ki gayi hai app ke apne dark surface par —
-lightness band, chroma floor, CVD separation, normal-vision floor aur contrast.
+The palette was validated against the app's own dark surface: lightness band,
+chroma floor, CVD separation, normal-vision floor and contrast.
 
-Aur ek chhoti si line jo option chain ko padhne layak banati hai: har table
-`font-variant-numeric: tabular-nums` par hai. Iske bina har column ke digits
-apni marzi se hilte hain aur do keemtein aankh se compare karna namumkin
-ho jaata hai.
+One more line does a disproportionate amount of work: every table uses
+`font-variant-numeric: tabular-nums`. Without it each column's digits shift
+between rows and comparing two prices by eye becomes impossible — which is most
+of what an option chain is for.
+
+---
 
 ## Units contract
 
-Har options bug yahin se shuru hota hai, isliye ek jagah likha hai:
+Every options bug starts here, so it is written down once:
 
 | Symbol | Unit |
 |---|---|
@@ -171,47 +175,47 @@ Har options bug yahin se shuru hota hai, isliye ek jagah likha hai:
 | `sigma` | **decimal** (0.55 = 55%, not 55) |
 | `bs_price` output | USD **per 1 unit of underlying** (per BTC / per ETH) |
 | `theta` | USD **per day** |
-| `vega` | USD **per 1 vol point** (per 1%) |
+| `vega` | USD **per 1 volatility point** (per 1%) |
 
-Per-lot value chahiye to `contract_value` se multiply karein
-(BTC options = 0.001 BTC, ETH = 0.01 ETH).
+Multiply by `contract_value` for per-lot figures (BTC options = 0.001 BTC,
+ETH = 0.01 ETH).
 
-App do cheezein **runtime par khud detect** karta hai, hard-code nahi karta:
-API ki IV percent mein hai ya decimal mein, aur API ke greeks per-unit hain ya
-per-lot. Dono ATM strikes ko dobara price karke decide hote hain — verdict
-har page ke **🩺 Diagnostics** expander mein dikhta hai.
+Two things are **detected at runtime** rather than hard-coded: whether the API
+sends IV in percent or as a decimal, and whether its greeks are per-unit or
+per-lot. Both are resolved by repricing ATM strikes, and the verdict is shown in
+each page's **🩺 Diagnostics** expander.
 
 ---
 
 ## Development
 
 ```bash
-pip install -r requirements.txt pytest
+pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest tests/ -v          # 354 tests
 python tests/check_read_only.py     # read-only guard
+ruff check .                        # lint
 ```
 
-Tests network ko chhoote bilkul nahi. Pure layers ke alawa har page ek
-synthetic Black-Scholes chain par **sach mein render** hota hai
-(`tests/test_pages_smoke.py`), kyunki ek page column ka naam galat likhne ya
-format string tod dene par bhi import ho jaata hai — crash tabhi hota hai jab
-user use kholta hai.
+No test touches the network. Beyond the pure layers, every page is **actually
+rendered** against a synthetic Black-Scholes chain
+([`tests/test_pages_smoke.py`](tests/test_pages_smoke.py)) — a page that
+misnames a column or breaks a format string still imports cleanly and only fails
+when a user opens it.
 
-CI har push par Python 3.10 / 3.11 / 3.12 par yehi chalata hai.
-
----
-
-## Kya is tool mein jaan-boojh kar NAHI hai
-
-- ❌ Koi API key ya secret — sirf public endpoints
-- ❌ Koi order placement — ye trade kar hi nahi sakta
-- ❌ Historical data / IV Rank / IV Percentile — history chahiye
-- ❌ Alerts / notifications
-- ❌ Cloud hosting — local-only tool
-- ❌ Perpetual futures basis / funding
+CI runs the same checks on Python 3.10, 3.11 and 3.12.
 
 ---
 
-*Read-only market data tool. Trading advice nahi. Fee defaults
-([`mmc_core/fees.py`](mmc_core/fees.py)) sidebar mein editable hain — live jaane
-se pehle https://www.delta.exchange/fees par verify kar lijiye.*
+## What this tool deliberately does not do
+
+- No API key or secret — public endpoints only
+- No order placement — it cannot trade
+- No historical data, IV rank or IV percentile — these need history
+- No alerts or notifications
+- No perpetual-futures basis or funding
+
+---
+
+*Read-only market data. Not trading advice. The fee defaults in
+[`mmc_core/fees.py`](mmc_core/fees.py) are editable in the sidebar — verify them
+against https://www.delta.exchange/fees before sizing anything real.*

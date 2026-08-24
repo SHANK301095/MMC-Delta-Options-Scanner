@@ -1,9 +1,8 @@
-"""Delta Exchange API client ke parsing/normalization tests.
+"""Tests for the Delta Exchange API client's parsing and normalization.
 
-Yahan koi network call nahi hoti — sirf wo layer test hoti hai jo Delta ke
-mixed-type JSON ko ek clean DataFrame mein badalti hai. Delta bade decimals
-STRING mein bhejta hai aur timestamps MICROseconds mein, isliye har type
-assumption yahan pin ki gayi hai.
+No network call happens here - only the layer that turns Delta's mixed-type
+JSON into a clean DataFrame is tested. Delta sends large decimals as STRINGS and
+timestamps in MICROseconds, so every type assumption is pinned down here.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ UTC = timezone.utc
 # --------------------------------------------------------------- to_float
 
 @pytest.mark.parametrize("raw, expected", [
-    ("112500.5", 112500.5),      # Delta strings mein bhejta hai
+    ("112500.5", 112500.5),      # Delta sends these as strings
     (42, 42.0),
     (3.5, 3.5),
     ("-0.25", -0.25),
@@ -56,18 +55,18 @@ def test_parse_option_symbol_decodes_a_put():
 
 
 def test_expiry_from_symbol_is_1730_ist():
-    """Delta India options 17:30 IST par settle hote hain = 12:00 UTC."""
+    """Delta India options settle at 17:30 IST, which is 12:00 UTC."""
     expiry = api.parse_option_symbol("C-BTC-95000-310126")["expiry_utc"]
     assert expiry.astimezone(api.IST).strftime("%H:%M") == "17:30"
 
 
 @pytest.mark.parametrize("symbol", [
-    "BTCUSD",                 # perpetual, option hi nahi
+    "BTCUSD",                 # a perpetual, not an option
     "X-BTC-95000-310126",     # invalid option type
     "C-BTC-95000",            # parts kam
     "C-BTC-95000-3101266",    # date lamba
-    "C-BTC-95000-AB0126",     # date numeric nahi
-    "C-BTC-abc-310126",       # strike numeric nahi
+    "C-BTC-95000-AB0126",     # non-numeric date
+    "C-BTC-abc-310126",       # non-numeric strike
     "",
     None,
 ])
@@ -151,8 +150,8 @@ def test_normalize_chain_produces_typed_columns():
     row = df.iloc[0]
     assert row["is_call"] is True or row["is_call"] == True  # noqa: E712
     assert row["strike"] == 100000.0
-    assert row["mark_price"] == 100.0        # string se float bana
-    assert row["iv_raw"] == 55.0             # raw hi rehta hai, scale baad mein
+    assert row["mark_price"] == 100.0        # parsed from a string
+    assert row["iv_raw"] == 55.0             # stays raw; scale resolved later
     assert row["oi_contracts"] == 1500.0
     assert row["contract_value"] == 0.001
 
@@ -166,21 +165,22 @@ def test_normalize_chain_computes_mid_and_spread_on_two_sided_book():
 
 
 @pytest.mark.parametrize("bid, ask", [
-    (None, "105.0"),      # sirf ask
-    ("95.0", None),       # sirf bid
+    (None, "105.0"),      # ask only
+    ("95.0", None),       # bid only
     ("0", "105.0"),       # zero bid
     ("105.0", "95.0"),    # crossed book
 ])
 def test_one_sided_or_crossed_book_gives_nan_mid_not_zero(bid, ask):
-    """One-sided book tradable NAHI hai. Use zero maan lena sabse mehnga bug hai —
-    scanner use 0% spread wali perfect strike samajh lega."""
+    """A one-sided book is NOT tradable. Treating it as zero is the most
+    expensive bug available: the scanner would read it as a perfect strike with
+    a 0% spread."""
     row = api.normalize_chain([_ticker(bid=bid, ask=ask)], _products()).iloc[0]
     assert math.isnan(row["mid"])
     assert math.isnan(row["spread_pct"])
 
 
 def test_normalize_chain_drops_non_option_contracts():
-    """Perpetual future kabhi options chain mein leak nahi hona chahiye."""
+    """A perpetual future must never leak into an options chain."""
     perp = _ticker(symbol="BTCUSD", contract_type="perpetual_futures")
     assert api.normalize_chain([perp], _products()).empty
 
@@ -203,7 +203,7 @@ def test_normalize_chain_survives_a_bad_timestamp():
 
 
 def test_normalize_chain_falls_back_to_symbol_when_product_missing():
-    """Products endpoint mein na ho to symbol parsing se specs nikalne chahiye."""
+    """When absent from the products endpoint, specs must come from the symbol."""
     row = api.normalize_chain([_ticker()], pd.DataFrame(columns=["symbol"])).iloc[0]
     assert row["strike"] == 100000.0
     assert math.isnan(row["contract_value"])
@@ -237,7 +237,7 @@ def test_resolve_spot_uses_median_so_one_stale_row_cannot_poison_it():
                 spot_price="99600.0"),
     ]
     df = api.normalize_chain(tickers, _products())
-    # Ek bilkul stale row thoop dijiye — median use ho raha hai to asar nahi padega.
+    # Force in a badly stale row - a median makes it harmless.
     df.loc[len(df)] = df.iloc[0].copy()
     df.loc[len(df) - 1, "spot_price"] = 5.0
     assert 99_000.0 < api.resolve_spot(df) < 100_000.0

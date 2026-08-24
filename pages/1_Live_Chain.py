@@ -1,7 +1,7 @@
 """
-MMC Delta Scanner — Live Chain + Liquidity Filter
+MMC Delta Scanner - Live Chain + Liquidity Filter
 =================================================
-Call/Put side-by-side chain for one Delta Exchange India expiry, with the
+A call/put side-by-side chain for one Delta Exchange India expiry, with the
 untradable strikes filtered out before they ever reach your eyes.
 """
 
@@ -13,13 +13,12 @@ import pandas as pd
 import streamlit as st
 
 from mmc_core import charts as ch
-from mmc_core import delta_api as api
 from mmc_core import theme
 from mmc_core import ui_common as ui
 
 ui.page_setup(
     "Live Chain",
-    "Two-sided book, real spreads, Greeks in ₹ per lot — dead strikes removed",
+    "Two-sided book, real spreads, greeks in ₹ per lot - dead strikes removed",
     icon="📈",
 )
 
@@ -40,15 +39,15 @@ spot = context["spot"]
 filtered = ui.apply_liquidity_filter(df, **liq)
 
 removed = len(df) - len(filtered)
-st.caption(f"🧹 Liquidity filter ne **{removed}** untradable contracts hataye · "
-           f"**{len(filtered)}** bache")
+st.caption(f"🧹 The liquidity filter removed **{removed}** untradable "
+           f"contracts · **{len(filtered)}** remain")
 
 if filtered.empty:
     st.markdown(theme.empty_state(
-        "🫙", "Filter ke baad kuch nahi bacha",
-        "Sidebar mein spread limit badhaiye, strike range widen kijiye, ya "
-        "two-sided book ki shart hataiye. Dhyan rahe — wo contracts practically "
-        "tradable nahi hote, isliye filter ne unhe hataya tha."
+        "🫙", "Nothing left after the filter",
+        "Raise the spread limit in the sidebar, widen the strike range, or "
+        "drop the two-sided requirement. Bear in mind those contracts are not "
+        "practically tradable, which is why the filter removed them."
     ), unsafe_allow_html=True)
     ui.render_diagnostics(context, df, settings)
     st.stop()
@@ -62,8 +61,8 @@ SIDE_COLS = [
     "theta_lot_inr", "best_bid", "best_ask", "spread_pct", "mark_price",
 ]
 
-calls = filtered[filtered["is_call"]][["strike"] + SIDE_COLS].copy()
-puts = filtered[~filtered["is_call"]][["strike"] + SIDE_COLS].copy()
+calls = filtered[filtered["is_call"]][["strike", *SIDE_COLS]].copy()
+puts = filtered[~filtered["is_call"]][["strike", *SIDE_COLS]].copy()
 
 calls = calls.rename(columns={c: f"C_{c}" for c in SIDE_COLS})
 puts = puts.rename(columns={c: f"P_{c}" for c in SIDE_COLS})
@@ -137,11 +136,12 @@ for side in ("C", "P"):
 fmt["STRIKE"] = "{:,.0f}"
 
 styled = display.style.apply(_highlight, axis=1).format(fmt, na_rep="—")
-st.dataframe(styled, hide_index=True, width='stretch', height=theme.table_height(len(display), max_px=560))
+st.dataframe(styled, hide_index=True, width='stretch',
+             height=theme.table_height(len(display), max_px=560))
 
 st.caption(
-    "θ ₹/lot = ek lot ek din mein kitna premium khoyega (negative = buyer ka "
-    f"loss / seller ka gain). 1 lot = {context['contract_value']:g} "
+    "θ ₹/lot is the premium one lot loses in a day (negative = the buyer's "
+    f"loss, the seller's gain). 1 lot = {context['contract_value']:g} "
     f"{settings['underlying']}. Spr% = (Ask − Bid) ÷ Mid."
 )
 
@@ -171,12 +171,12 @@ pcr = (p_oi.sum() / c_oi.sum()) if c_oi.sum() > 0 else float("nan")
 st.markdown(theme.stat_row([
     theme.stat("Max call OI",
                f"{top_call:,.0f}" if not math.isnan(top_call) else "—",
-               sub="aksar upper pin"),
+               sub="often the upper pin"),
     theme.stat("Max put OI",
                f"{top_put:,.0f}" if not math.isnan(top_put) else "—",
-               sub="aksar lower pin"),
+               sub="often the lower pin"),
     theme.stat("PCR (filtered)", f"{pcr:.2f}" if not math.isnan(pcr) else "—",
-               sub="1 se upar = put-heavy"),
+               sub="above 1 = put-heavy"),
 ]), unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------
@@ -189,30 +189,31 @@ warn_rows = []
 
 stale = filtered[filtered["is_stale"].fillna(False)]
 if not stale.empty:
-    warn_rows.append(f"**{len(stale)}** contracts ki quote 2 minute se purani hai — "
-                     "inka mark price ghost data ho sakta hai.")
+    warn_rows.append(f"**{len(stale)}** contracts have quotes older than two "
+                     "minutes - their mark price may be ghost data.")
 
 wide = filtered[filtered["spread_pct"] > 15]
 if not wide.empty:
-    warn_rows.append(f"**{len(wide)}** contracts ka spread 15% se zyada hai — "
-                     "entry aur exit dono par kata lagega.")
+    warn_rows.append(f"**{len(wide)}** contracts have a spread above 15% - "
+                     "you will pay for it on both entry and exit.")
 
 gap = filtered[filtered["model_gap_pct"].abs() > 20]
 if not gap.empty:
-    warn_rows.append(f"**{len(gap)}** contracts par Black-Scholes value aur exchange "
-                     "mark price mein 20%+ ka farak hai — ya IV galat hai, "
-                     "ya quote stale hai.")
+    warn_rows.append(f"**{len(gap)}** contracts differ by more than 20% between "
+                     "the Black-Scholes value and the exchange mark price - "
+                     "either the IV is wrong or the quote is stale.")
 
 if warn_rows:
     for w in warn_rows:
         st.markdown(f"- {w}")
 else:
-    st.success("Filtered chain saaf hai — koi stale quote ya extreme spread nahi mila.")
+    st.success("The filtered chain is clean - no stale quotes or extreme spreads.")
 
-st.markdown(theme.section("Cost of trading", "fees + spread, per lot"), unsafe_allow_html=True)
-st.caption("Delta ki fee NOTIONAL par lagti hai (premium par nahi), phir "
-           "premium ka cap lagta hai. Sasti OTM strikes par round-trip cost "
-           "aksar premium ka bada hissa kha jaata hai.")
+st.markdown(theme.section("Cost of trading", "fees plus spread, per lot"),
+            unsafe_allow_html=True)
+st.caption("Delta charges fees on NOTIONAL, not on premium, then caps them at "
+           "a percentage of the premium. On cheap OTM strikes the round-trip "
+           "cost often consumes a large share of that premium.")
 
 cost_tbl = filtered[["strike", "is_call", "mark_price", "fee_pct_of_premium",
                      "slippage_pct", "total_cost_pct",
@@ -234,14 +235,15 @@ st.dataframe(
         "Gross θ %/day": "{:.2f}%", "Net θ %/day": "{:+.2f}%",
     }, na_rep="—").background_gradient(
         subset=["Net θ %/day"], cmap="RdYlGn"),
-    hide_index=True, width="stretch", height=theme.table_height(len(cost_tbl), max_px=340),
+    hide_index=True, width="stretch",
+    height=theme.table_height(len(cost_tbl), max_px=340),
 )
 
 neg = cost_tbl[cost_tbl["Net θ %/day"] < 0]
 if not neg.empty:
-    st.error(f"⚠️ **{len(neg)} strikes par net theta negative hai** — "
-             "matlab ek din ka decay round-trip cost se kam hai. In par "
-             "premium bechna theoretically bhi loss-making hai.")
+    st.error(f"⚠️ **Net theta is negative on {len(neg)} strikes** - one day's "
+             "decay is smaller than the round-trip cost. Selling premium on "
+             "them loses money even in theory.")
 
 st.markdown("#### Spread map")
 st.plotly_chart(
@@ -251,7 +253,7 @@ st.plotly_chart(
     width="stretch",
 )
 
-with st.expander("🔍 Full raw table (saare computed columns)"):
+with st.expander("🔍 Full raw table (every computed column)"):
     raw_cols = [
         "symbol", "is_call", "strike", "mark_price", "mid", "best_bid", "best_ask",
         "spread_pct", "iv_pct", "delta", "gamma", "theta", "vega",

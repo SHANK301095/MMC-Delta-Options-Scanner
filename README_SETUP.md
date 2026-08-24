@@ -1,67 +1,89 @@
-# MMC Delta Scanner v2.0 — Setup Guide
+# MMC Delta Options Scanner — Setup Guide
 
-**Kya hai:** Delta Exchange India ke BTC/ETH options ka live chain + theta decay calculator.
-Poori tarah **read-only** — koi API key nahi, koi order placement code nahi.
+**What this is:** a live option chain and analytics suite for Delta Exchange
+India's BTC and ETH options.
+
+Entirely **read-only** — no API key, no credentials, no order-placement code.
 
 ---
 
-## 1. Install (sirf ek baar, ~5 minute)
+## 1. Install (once, about five minutes)
 
-### Step 1 — Python install karein (agar pehle se nahi hai)
+### Step 1 — Install Python (if you don't already have it)
 
-1. Kholein: https://www.python.org/downloads/
-2. Bada peela button **"Download Python 3.x"** dabaiye
-3. Installer chalaiye
-4. ⚠️ **Sabse important:** pehli screen par **"Add Python to PATH"** ka checkbox tick karein
-5. "Install Now" dabaiye, khatam hone tak wait karein
+1. Open https://www.python.org/downloads/
+2. Click the large yellow **"Download Python 3.x"** button
+3. Run the installer
+4. ⚠️ **Most important:** on the first screen, tick **"Add Python to PATH"**
+5. Click "Install Now" and wait for it to finish
 
-**Check karne ke liye:** Start menu → `cmd` type karein → Command Prompt kholein → likhen:
+To confirm: open the Start menu, type `cmd`, open Command Prompt and run:
+
 ```
 py --version
 ```
-Agar `Python 3.12.x` jaisa kuch aaya to sab theek hai.
 
-### Step 2 — Folder rakhein
+If it prints something like `Python 3.12.x`, you are set.
 
-`MMC_Delta_Scanner` folder ko kahin permanent jagah rakhein, jaise:
+### Step 2 — Put the folder somewhere permanent
+
+Keep the project folder in a stable location, for example:
+
 ```
-C:\MMC\MMC_Delta_Scanner
+C:\MMC\MMC-Delta-Options-Scanner
 ```
-⚠️ Desktop ya Downloads mein mat chhodiye — path badalne par shortcut toot jaata hai.
 
-### Step 3 — Chalaiye
+⚠️ Avoid leaving it in Desktop or Downloads — moving it later breaks the
+shortcut.
 
-Folder ke andar **`RUN_MMC_SCANNER.bat`** par double-click karein.
+### Step 3 — Run it
 
-Pehli baar ye khud hi:
-- ek virtual environment banayega (`.venv` folder)
-- saari libraries install karega
-- browser mein scanner khol dega
+**Windows:** double-click **`RUN_MMC_SCANNER.bat`**
+**Linux / macOS:** run **`./run_scanner.sh`**
 
-Pehli baar 2-4 minute lagega. Uske baad har baar 10 second.
+On first run this automatically:
 
-**Browser apne aap na khule to:** black window mein jo `http://localhost:8501` likha hai, use copy karke browser mein paste kar dijiye.
+- creates a virtual environment (a `.venv` folder)
+- installs all libraries
+- opens the scanner in your browser
 
-**Band karne ke liye:** black window mein `Ctrl + C` dabaiye, phir window band kar dijiye.
+The first run takes two to four minutes; afterwards about ten seconds.
+
+**If the browser doesn't open by itself:** copy the `http://localhost:8501`
+address shown in the terminal window and paste it into your browser.
+
+**To stop:** press `Ctrl + C` in the terminal window, then close it.
+
+### There is nothing to configure
+
+The app uses Delta's public market-data endpoints, which need no credentials.
+There is no API key to enter, no Streamlit secret to set and no environment file
+to create. If you deploy it, the same is true there.
 
 ---
 
-## 2. Folder structure (mat badliye)
+## 2. Folder structure (leave this as it is)
 
 ```
-MMC_Delta_Scanner/
-├── RUN_MMC_SCANNER.bat      ← isi par double-click
-├── app.py                   ← Home page
+MMC-Delta-Options-Scanner/
+├── RUN_MMC_SCANNER.bat      ← double-click this on Windows
+├── run_scanner.sh           ← run this on Linux / macOS
+├── app.py                   ← home page
 ├── requirements.txt
-├── README_SETUP.md          ← ye file
-├── mmc_core/                ← engine (mat chhediye)
-│   ├── __init__.py
+├── README.md                ← project overview
+├── README_SETUP.md          ← this file
+├── .streamlit/
+│   └── config.toml          ← app theme
+├── mmc_core/                ← engine (leave alone)
 │   ├── delta_api.py         ← Delta API client
-│   ├── options_math.py      ← Black-Scholes + payoff helpers
+│   ├── options_math.py      ← Black-Scholes and payoff helpers
+│   ├── volatility.py        ← VIX-style volatility index
 │   ├── fees.py              ← Delta India fee model
 │   ├── charts.py            ← Plotly chart layer
-│   ├── settings_store.py    ← settings save/load
-│   └── ui_common.py         ← sidebar + calculations
+│   ├── theme.py             ← design system
+│   ├── url_state.py         ← view state in the URL
+│   ├── settings_store.py    ← local settings (local runs only)
+│   └── ui_common.py         ← sidebar and shared calculations
 ├── pages/                   ← modules
 │   ├── 1_Live_Chain.py
 │   ├── 2_Theta_Decay.py
@@ -70,22 +92,23 @@ MMC_Delta_Scanner/
 │   ├── 5_Mispricing.py
 │   ├── 6_Delta_Filter.py
 │   └── 7_Vol_Regime.py
-└── mmc_settings.json        ← Save dabane par khud banegi
+└── mmc_settings.json        ← created when you press Save on a local run
 ```
 
-⚠️ `pages` folder ka naam bilkul `pages` hi rehna chahiye — Streamlit isi naam se modules dhoondhta hai.
+⚠️ The `pages` folder must keep exactly that name — Streamlit looks for modules
+there.
 
 ---
 
-## 3. Pehli baar kya karein
+## 3. What to do on first run
 
-1. **Home page** khulega → upar Spot, Expiry, Time left dikhega
-2. Left sidebar mein **Underlying** = BTC, **Expiry** = nearest wali chunein
-3. Sidebar mein **USD → INR rate** aaj ka daal dijiye (default 88)
-4. **🩺 Diagnostics** expander kholiye aur ek baar dekh lijiye:
-   - "IV: API IV percent mein hai → ÷100 lagaya" — ye normal hai
-   - "Greek basis detected: per_unit" — ye bhi normal hai
-   - Agar yahan `unknown` aaye to mujhe screenshot bhej dijiye
+1. The **Home** page opens, showing spot, expiry and time remaining
+2. In the left sidebar, choose **Underlying** = BTC and the nearest **Expiry**
+3. Set today's **USD → INR rate** in the sidebar (default 88)
+4. Open the **🩺 Diagnostics** expander once and check it:
+   - "API sends IV in percent -> divided by 100" is normal
+   - "Greek basis detected: per_unit" is normal
+   - If it reports `unknown`, send a screenshot
 
 ---
 
@@ -93,149 +116,216 @@ MMC_Delta_Scanner/
 
 ### 📈 Live Chain + Liquidity Filter
 
-Call/Put side-by-side chain. Columns:
+Calls and puts side by side. Columns:
 
-| Column | Matlab |
+| Column | Meaning |
 |---|---|
-| `C OI` / `P OI` | Open Interest (contracts) |
-| `C IV%` | Implied Volatility, percent mein |
+| `C OI` / `P OI` | Open interest (contracts) |
+| `C IV%` | Implied volatility, in percent |
 | `C Δ` | Delta |
-| `C θ₹` | Theta — ek lot ek din mein kitna ₹ khoyega |
-| `C Spr%` | Bid-ask spread, mid ka percent |
-| `STRIKE` | Strike price (ATM row highlighted) |
+| `C θ₹` | Theta — the rupees one lot loses in a day |
+| `C Spr%` | Bid-ask spread as a percentage of mid |
+| `STRIKE` | Strike price (the ATM row is highlighted) |
 
-**Liquidity filter sidebar mein hai.** Default settings:
-- Sirf two-sided book (bid AND ask dono hon)
-- Max spread 25%
-- Strike range ±20% spot se
+**The liquidity filter is in the sidebar.** Defaults:
 
-Ye filter sabse zaroori hai. Delta India par zyadatar door ke strikes par ya to bid hi nahi hota ya 40%+ spread hota hai — un par "opportunity" dikhna sirf illusion hai.
+- Two-sided book only (both a bid and an ask)
+- Maximum spread 25%
+- Strike range ±20% from spot
+
+This filter matters more than anything else on the page. On Delta India, distant
+strikes frequently have no bid at all or a 40%+ spread — an "opportunity" shown
+on one of those is an illusion.
 
 ### ⏳ Theta Decay Calculator (fee-aware)
 
-**Tab 1 — Chain Decay Scanner**
-Har liquid strike ka decay ranking. Horizon slider se choose karein (1-72 ghante).
-`Burn % of premium` sabse upar wale strikes seller ke liye juicy dikhte hain — lekin unhi ka gamma risk sabse zyada hota hai.
+**Tab 1 — Chain Decay Scanner.** Every liquid strike ranked by decay, over a
+horizon you choose (1 to 72 hours). The strikes at the top of `Burn % of
+premium` look juiciest to a seller, but they also carry the most gamma risk.
 
-**Tab 2 — Single Strike Lab**
-Ek strike chunein → ghanta-ba-ghanta decay curve. Do charts:
-- Premium melting away (green line girti hui)
-- Step burn (orange bars — theta acceleration saaf dikhta hai)
+**Tab 2 — Single Strike Lab.** Pick a strike and get an hour-by-hour decay
+curve, with two charts: premium melting away, and the per-step burn where theta
+acceleration is clearly visible.
 
-**Tab 3 — Position Basket**
-Multi-leg position banaiye. Net Premium, Net θ/day, Net Delta, Net Vega aur decay-only P&L chart milega.
+**Tab 3 — Position Basket.** Build a multi-leg position and see net premium, net
+θ/day, net delta, net vega and a decay-only P&L curve.
 
-⚠️ Scanner ab har strike par **Net after cost** column dikhata hai — decay minus (fees + spread). Jahan ye negative hai, wahan premium bechna pehle din se ghaata hai.
+⚠️ The scanner shows a **Net after cost** column on every strike — decay minus
+fees and spread. Where that is negative, selling the premium loses money from
+day one.
 
 ### 🌊 IV Skew & Term Structure
 
-**Tab 1 — Smile:** IV vs strike. Purple line OTM contracts se banti hai (spot ke neeche puts, upar calls) — yahi market convention hai, kyunki ITM quotes stale hoti hain.
+**Tab 1 — Smile.** IV against strike. The purple line is built from OTM
+contracts (puts below spot, calls above), which is the market convention,
+because ITM quotes are usually stale.
 
-Skew metrics:
-| Metric | Matlab |
+| Metric | Meaning |
 |---|---|
-| **25Δ Risk Reversal** | 25Δ Call IV − 25Δ Put IV. Positive = calls mehnge. Negative = puts mehnge (crypto ki default state) |
-| **25Δ Butterfly** | Wings ka average minus ATM. Zyada = market tail risk price kar raha hai |
+| **25Δ Risk Reversal** | 25Δ call IV − 25Δ put IV. Positive means calls are expensive; negative means puts are (crypto's default state) |
+| **25Δ Butterfly** | The average of the wings minus ATM. Higher means the market is pricing tail risk |
 
-**Tab 2 — Term Structure:** Har live expiry ki ATM IV. Upar jaati line = contango, neeche = backwardation.
+**Tab 2 — Term Structure.** ATM IV for each live expiry. An upward slope is
+contango, downward is backwardation.
 
 ### 🎯 Payoff Builder
 
-8 preset strategies: Short/Long Straddle, Short/Long Strangle, Iron Condor, Bull Call, Bear Put, Short Put.
+Eight preset strategies: short and long straddle, short and long strangle, iron
+condor, bull call, bear put, short put.
 
-Teen cheezein jo aam payoff tools galat karte hain, yahan sahi hain:
-1. **Executable fills** — Buy par ASK, Sell par BID (mark price par koi fill nahi hota)
-2. **Fees dono taraf** — entry + exit, GST sameta, premium cap ke saath
-3. **T+0 curve** — expiry wali shape se pyaar ho jaata hai; T+0 curve decide karti hai ki aap expiry tak zinda bachenge ya nahi
+Three things most payoff tools get wrong are correct here:
 
-Break-evens, max profit/loss, unlimited-risk warning aur net greeks sab automatic.
+1. **Executable fills** — the ASK when buying, the BID when selling (nothing
+   fills at the mark price)
+2. **Fees on both sides** — entry and exit, GST included, with the premium cap
+   applied
+3. **A T+0 curve** — the expiry shape is the one people fall in love with; the
+   T+0 curve decides whether you survive to see it
 
-### 📐 Delta Filter + Live Rates
-
-Delta ko primary control banata hai, strike ko result.
-
-Slider `|Δ| × 100` par chalta hai — 0 se 100. Upar preset buttons hain
-(5-15Δ deep OTM, 15-25Δ classic short, 40-60Δ ATM waqaira), ya khud range
-kheench lijiye.
-
-Band **absolute** delta par lagta hai: 20-30 maangne par 0.25 delta call aur
-−0.25 delta put dono aayenge. Yahi market convention hai — "25 delta put"
-ka matlab delta −0.25 hota hai.
-
-Table mein har contract ke live rate hain: Bid, Ask, Mark, aur sidebar ke price
-basis se **Buy @** / **Sell @**. Uske saath ₹ premium per lot, θ ₹/lot/day,
-round-trip cost, aur **Net θ %/day**.
-
-Neeche ka chart batata hai ki aapki band chain par kahan padti hai — delta ek
-abstract number hai, aur ye dikha deta hai ki 20-30Δ maangne par aap spot se
-kitne door ja rahe hain.
-
-⚠️ Do baatein:
-- Agar band mein contracts the par table khaali hai, to wo liquidity filter mein
-  nikle hain. Metric "Liquidity ne hataye" wahi ginta hai.
-- **Delta probability nahi hai.** 25Δ ka matlab *lagbhag* 25% chance hai ki
-  option ITM expire hoga — approximation hai, guarantee nahi.
+Break-evens, maximum profit and loss, an unlimited-risk warning and net greeks
+are all computed automatically.
 
 ### 🔎 Mispricing Scanner
 
-Chaar model-free arbitrage bounds — inme koi volatility assumption hai hi nahi:
+Four model-free arbitrage bounds, none of which assume any volatility model:
 
 | Check | Rule |
 |---|---|
-| Put-Call Parity | C − P = S − K·e^(−rT) |
-| Vertical Bounds | 0 ≤ C(K₁) − C(K₂) ≤ K₂ − K₁ |
-| Butterfly Convexity | C(K₁) − 2C(K₂) + C(K₃) ≥ 0 |
-| Box Spread | payoff hamesha exactly K₂ − K₁ |
+| Put-call parity | C − P = S − K·e^(−rT) |
+| Vertical bounds | 0 ≤ C(K₁) − C(K₂) ≤ K₂ − K₁ |
+| Butterfly convexity | C(K₁) − 2C(K₂) + C(K₃) ≥ 0 |
+| Box spread | payoff is always exactly K₂ − K₁ |
 
-Sab **executable prices** par chalte hain aur fees ghata kar report karte hain.
+All of them run on **executable prices** and report net of fees.
 
-⚠️ **Is page par zyadatar GREEN dikhna chahiye.** Wahi healthy chain ki nishani hai. Bahut saare violations aayein to pehla shak stale data par karein, free money par nahi.
+⚠️ **This page should be mostly green.** That is what a healthy chain looks like.
+If many violations appear, suspect stale data first, not free money.
+
+### 📐 Delta Filter + Live Rates
+
+Makes delta the primary control and the strike the result.
+
+The slider runs on `|Δ| × 100`, from 0 to 100, with presets above it (5–15Δ deep
+OTM, 15–25Δ classic short, 40–60Δ ATM and so on).
+
+The band applies to **absolute** delta: asking for 20–30 returns both the 0.25
+call and the −0.25 put. That is the market convention — "the 25 delta put" means
+a delta of −0.25.
+
+Each contract's live rates are shown: bid, ask, mark, and the **Buy @** /
+**Sell @** prices for the sidebar's price basis, alongside premium per lot,
+θ ₹/lot/day, round-trip cost and **Net θ %/day**.
+
+The chart below shows where your band falls on the chain — delta is an abstract
+number, and this makes it concrete.
+
+⚠️ Two things worth remembering:
+
+- If contracts existed in the band but the table is empty, they were removed by
+  the liquidity filter. The "Removed by liquidity" tile counts exactly that.
+- **Delta is not probability.** 25Δ means *roughly* a 25% chance of expiring in
+  the money — an approximation, not a guarantee.
+
+### 🌡️ Volatility Regime
+
+A single number for the whole market's volatility — the India VIX idea, applied
+to BTC and ETH.
+
+This is not ATM IV. ATM IV is one strike's number; this is built from the entire
+OTM chain, wings included, exactly as CBOE VIX and India VIX are. No
+Black-Scholes, no smile fit — only quoted bid-ask midpoints and the payoff
+structure.
+
+**Regime gate:** set a band at the top (default 40–80). Inside it, your regime
+is running. Outside, the page says which side and by how much — however good the
+setups on the chain may look.
+
+**Two things the page tells you about itself:**
+
+- **Whether constant maturity was achieved.** The index should sit at 30 days,
+  otherwise today's and tomorrow's readings are not comparable. If no two
+  expiries bracket 30 days, the page does **not** extrapolate — it reports the
+  maturity that genuinely exists, clearly labelled.
+- **How wide the chain is.** A narrow chain makes the index read low. At 90
+  days, ±15% strike coverage reports 55% volatility as 43.5%. Each expiry's
+  coverage is shown, with a warning when it falls short.
+
+⚠️ The index gives *expected* movement over 30 days, not direction. A high
+reading does not say the market will fall — only that the move will be large,
+either way.
 
 ---
 
-## 5. Zaroori baatein (padh lijiye)
+## 5. Things worth reading
 
-### Decay curve spot aur IV ko FREEZE karke banta hai
-Real trading mein teen cheezein saath chalti hain:
-- **Theta** — time decay (ye chart)
-- **Delta/Gamma** — spot hilne se P&L
-- **Vega** — IV badalne se P&L
+### Your view is saved in the URL
 
-Short premium position par **gamma loss aksar theta gain se bada** ho jaata hai. Isi liye har basket ke saath Net Delta aur Net Vega bhi dikhaya jaata hai.
+Underlying, expiry, price basis, USD/INR rate and both bands are written into
+the address bar. Reload and you return to the same view; bookmark it and it
+keeps; send the link and the recipient sees the same screen.
 
-### Theta do tarike se dikhaya jaata hai
-- **Analytic θ** — classic Black-Scholes derivative
-- **Repricing burn** — option ko future timestamp par dobara price karke difference
+On a deployed app this replaces the Save button entirely, and for good reason: a
+Streamlit app is one process shared by every visitor, so a setting saved on the
+server would become everyone's setting.
 
-Expiry ke din inme 50%+ ka farak aata hai. **Repricing wala number sahi hai.** Analytic theta ek instantaneous slope hai, jo expiry paas aane par ghalat ho jaata hai.
+### The decay curve holds spot and IV constant
 
-### Fees notional par lagti hain, premium par nahi
+Three things move together in real trading:
 
-Delta India options fee:
+- **Theta** — time decay (this chart)
+- **Delta and gamma** — P&L from spot moving
+- **Vega** — P&L from IV changing
+
+On a short-premium position the **gamma loss frequently exceeds the theta gain**.
+That is why net delta and net vega are shown alongside every basket.
+
+### Theta is shown two ways
+
+- **Analytic θ** — the classic Black-Scholes derivative
+- **Repricing burn** — the option repriced at a future timestamp, differenced
+
+On expiry day these differ by more than 50%. **The repricing figure is the
+correct one.** Analytic theta is an instantaneous slope, and it becomes wrong as
+expiry approaches.
+
+### Fees apply to notional, not premium
+
+Delta India options fees:
+
 ```
 fee = min( notional × rate , premium × cap )  × (1 + GST)
 notional = lots × lot_size × index_price
 ```
 
-Iska seedha asar: **sasti OTM options par round-trip cost premium ka ~8% hota hai, jabki ATM par ~2.4%.** Jo scanner ye ignore karta hai, wo dead ₹1 strikes ko "best theta yield" bata dega.
+The direct consequence: **a round trip costs about 8% of premium on a cheap OTM
+option, versus roughly 2.4% at the money.** A scanner that ignores this reports
+dead ₹1 strikes as the "best theta yield".
 
-Defaults: maker 0.01%, taker 0.03%, cap 3.5%, GST 18%. **Sab sidebar mein editable hain** — Delta ye kabhi-kabhi badalta hai, aur published sources bhi aapas mein disagree karte hain. Live jaane se pehle https://www.delta.exchange/fees par verify kar lijiye.
+Defaults: maker 0.01%, taker 0.03%, cap 3.5%, GST 18%. **All are editable in the
+sidebar** — Delta changes them occasionally, and published sources disagree with
+each other. Verify against https://www.delta.exchange/fees before going live.
 
 ### Price basis
 
-Sidebar mein teen options:
-- **Realistic** (default) — Buy par ASK, Sell par BID
-- **Mid** — book ka midpoint
-- **Mark** — Delta ka mark price
+Three options in the sidebar:
 
-Realistic hi default hai kyunki mark price par koi fill nahi hota. Jis chain par chauthai strikes ka spread 20%+ ho, wahan mark-priced edge sirf kaagzi hota hai.
+- **Realistic** (default) — the ASK when buying, the BID when selling
+- **Mid** — the midpoint of the book
+- **Mark** — Delta's mark price
+
+Realistic is the default because nothing fills at the mark. On a chain where a
+quarter of strikes carry a 20%+ spread, mark-priced edge exists only on paper.
 
 ### Rate limit
-Delta ka quota 5 minute ke window mein 10,000 weight hai. Default 15-second refresh par scanner iska ~5% use karta hai.
-5 second par mat rakhiye jab tak zaroorat na ho.
+
+Delta's quota is 10,000 weight per rolling five-minute window. At the default
+15-second refresh the scanner uses roughly 5% of it. Do not set it to 5 seconds
+without a reason.
 
 ### Expiry time
-Delta India options **17:30 IST = 12:00 UTC** par expire hote hain. Scanner ye exact second-level use karta hai, whole days nahi — warna expiry din ke saare numbers galat aate.
+
+Delta India options expire at **17:30 IST = 12:00 UTC**. The scanner uses that
+exact second, not whole days — otherwise every number on expiry day is wrong.
 
 ---
 
@@ -243,75 +333,30 @@ Delta India options **17:30 IST = 12:00 UTC** par expire hote hain. Scanner ye e
 
 | Problem | Solution |
 |---|---|
-| `Python nahi mila` | Python install nahi hua ya PATH tick nahi kiya. Dobara install karein |
-| `Rate limit hit (HTTP 429)` | Sidebar mein refresh interval 30 ya 60 sec kar dijiye |
-| `Network error` | Internet / VPN / firewall check karein |
-| `HTTP 403 - CDN block` | VPN band karke try karein |
-| Chain khali dikh rahi hai | Liquidity filter bahut tight hai — spread limit badhaiye |
-| Delta Filter khali hai | Band mein contract nahi, ya sab liquidity filter mein nikal gaye — page khud batata hai kaunsi wajah hai |
-| Numbers ajeeb lag rahe hain | Diagnostics expander kholiye, screenshot bhejiye |
-| Libraries install nahi ho rahi | `.venv` folder delete karke `.bat` dobara chalaiye |
-| Settings yaad nahi rah rahi | Sidebar mein **💾 Save** dabaiye (ek baar) |
-| Auto-refresh par UI slow lagta hai | Normal hai — refresh ke beech click queue hota hai. Interval badha dijiye ya auto-refresh off karein |
-| Term structure slow hai | Har expiry ke liye alag API call jaati hai. "Kitni expiries" slider kam kar dijiye |
+| `Python not found` | Python isn't installed, or PATH wasn't ticked. Reinstall |
+| `Rate limit hit (HTTP 429)` | Set the refresh interval to 30 or 60 seconds |
+| `Network error` | Check your internet, VPN or firewall |
+| `HTTP 403 - blocked by the CDN` | Turn off any VPN and retry |
+| The chain looks empty | The liquidity filter is too tight — raise the spread limit |
+| Delta Filter is empty | Either no contract is in that band, or all of them failed the liquidity filter — the page says which |
+| The numbers look odd | Open the Diagnostics expander and send a screenshot |
+| Libraries won't install | Delete the `.venv` folder and run the launcher again |
+| Settings aren't remembered | Bookmark the URL — it carries your view. The Save button only appears on a local run |
+| Auto-refresh feels slow | Increase the refresh interval, or turn auto-refresh off |
+| Term structure is slow | Each expiry costs its own API call. Reduce the expiry-count slider |
 
 ---
 
-## 7. Kya is tool mein NAHI hai (jaan-boojh kar)
+## 7. What this tool deliberately does not do
 
-- ❌ Koi API key ya secret — sirf public endpoints
-- ❌ Koi order placement code — trade kar hi nahi sakta
-- ❌ Historical data / IV Rank / IV Percentile — inke liye history chahiye (Data Spine, Phase 3)
-- ❌ Realised vs implied vol comparison — history chahiye
-- ❌ Alerts / notifications — Phase 3
-- ❌ Cloud hosting — ye local-only tool hai
-- ❌ Perpetual futures basis / funding — parity page abhi sirf options chain ki internal consistency check karta hai
-
----
+- ❌ No API key or secret — public endpoints only
+- ❌ No order-placement code — it cannot trade
+- ❌ No historical data, IV rank or IV percentile — these need history
+- ❌ No realised-versus-implied volatility comparison — needs history
+- ❌ No alerts or notifications
+- ❌ No perpetual-futures basis or funding — the parity page checks the option
+  chain's internal consistency only
 
 ---
 
-## 8. v2.0 mein kya naya hai
-
-| Area | v1.0 | v2.0 |
-|---|---|---|
-| Modules | 2 | 5 |
-| Fees | ❌ | ✅ Full Delta India model (notional + cap + GST) |
-| Price basis | Mark only | Realistic / Mid / Mark |
-| Charts | Basic | Plotly (hover, zoom, export) |
-| Auto-refresh | ❌ | ✅ |
-| Settings save | ❌ | ✅ |
-| Break-even detection | — | ✅ dedupe-safe |
-| Arbitrage checks | ❌ | ✅ 4 model-free bounds |
-
----
-
-### 🌡️ Volatility Regime
-
-Poore market ki volatility ka ek number — India VIX jaisa, lekin BTC/ETH ke liye.
-
-Ye ATM IV nahi hai. ATM IV ek strike ka number hai; ye poori OTM chain se banta
-hai, wings sameth — theek waise jaise CBOE VIX aur India VIX bante hain. Koi
-Black-Scholes nahi, koi smile fit nahi: sirf quoted bid-ask midpoints aur payoff
-structure.
-
-**Regime gate:** upar band set kijiye (default 40-80). Index band ke andar hai
-to ✅ regime chal raha hai. Bahar hai to page saaf batata hai kis taraf aur
-kitna door — chahe chain par setups kitne bhi acche dikh rahe hon.
-
-**Do cheezein jo page khud batata hai:**
-
-- **Constant maturity mili ya nahi.** Index 30 din par hona chahiye, warna aaj
-  aur kal ka number compare karne layak nahi rehta. Agar chain par 30 din ko
-  bracket karne wali do expiries nahi hain, to page extrapolate NAHI karta —
-  jo maturity sach mein hai wahi dikhata hai, saaf label ke saath.
-- **Chain kitni chaudi hai.** Tang chain index ko kam dikhati hai. 90 din par
-  ±15% strike coverage 55% vol ko 43.5% bata degi. Page har expiry ki coverage
-  dikhata hai aur tang hone par warn karta hai.
-
-⚠️ VIX 30 din ki *expected* chaal batata hai, direction nahi. Uncha VIX ye
-nahi kehta ki market girega — sirf ye ki chaal badi hogi, kisi bhi taraf.
-
----
-
-*MMC Delta Scanner v2.0 · Read-only market data · Trading advice nahi*
+*MMC Delta Options Scanner · Read-only market data · Not trading advice*

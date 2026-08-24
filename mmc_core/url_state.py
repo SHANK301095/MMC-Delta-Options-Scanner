@@ -1,30 +1,29 @@
 """
-MMC Delta Scanner — View state in the URL
+MMC Delta Scanner - View state in the URL
 =========================================
-Jo aap dekh rahe hain wo URL mein likha rehta hai. Iska matlab:
+Whatever you are looking at is written into the URL. That means:
 
-  * Page reload karne par wahi view wapas aata hai
-  * Link bookmark kar sakte hain — "BTC, agli expiry, 15-25Δ" ek URL ban jaata hai
-  * Wahi link kisi aur ko bhej dijiye, unhe bilkul wahi screen dikhegi
+  * Reloading the page returns you to the same view
+  * A link can be bookmarked - "BTC, next expiry, 15-25 delta" becomes a URL
+  * Send that link to someone and they see exactly the same screen
 
-Ye ek server-side settings file se behtar hai, khaas kar deployed app par. Ek
-Streamlit app ek hi process hota hai jise sab visitors share karte hain, to
-server par "save" kiya gaya setting sabka setting ban jaata hai. URL har
-browser ka apna hai — koi kisi ka view nahi badal sakta.
+This is better than a server-side settings file, especially on a deployed app.
+A Streamlit app is a single process shared by every visitor, so a setting
+"saved" on the server becomes everyone's setting. The URL belongs to each
+browser - nobody can change anyone else's view.
 
-URL PARAMS BAHAR SE AATE HAIN
------------------------------
-Koi bhi kuch bhi type kar ke bhej sakta hai. Isliye har value validate hoti
-hai aur galat value CHUP-CHAAP GIRA DI jaati hai, guess nahi ki jaati:
-`?u=<script>` par app default underlying par chalta hai, kuch fatta nahi.
-Numbers apni haddon mein clamp hote hain.
+URL PARAMS COME FROM OUTSIDE
+----------------------------
+Anyone can type anything into them. So every value is validated and a bad one
+is DROPPED SILENTLY rather than guessed at: `?u=<script>` simply opens on the
+default underlying, and nothing breaks. Numbers are clamped to their range.
 """
 
 from __future__ import annotations
 
 import math
 
-# Short keys jaan-boojh kar — URL padhne aur bhejne layak rehna chahiye.
+# Short keys, deliberately - the URL should stay readable and shareable.
 KEY_UNDERLYING = "u"
 KEY_EXPIRY = "e"
 KEY_PRICE_MODE = "p"
@@ -32,7 +31,7 @@ KEY_USDINR = "fx"
 KEY_DELTA_BAND = "d"
 KEY_VOL_BAND = "v"
 
-# URL par chhote codes, session_state mein poore labels.
+# Short codes in the URL, full labels in session_state.
 PRICE_CODES = {"realistic": "Realistic (buy ask / sell bid)",
                "mid": "Mid",
                "mark": "Mark"}
@@ -42,7 +41,7 @@ USDINR_MIN, USDINR_MAX = 50.0, 150.0
 
 
 def _clean_symbol(value) -> str | None:
-    """Underlying jaisa ek chhota alphanumeric symbol, ya None."""
+    """A short alphanumeric symbol like an underlying, or None."""
     if not isinstance(value, str):
         return None
     text = value.strip().upper()
@@ -52,7 +51,7 @@ def _clean_symbol(value) -> str | None:
 
 
 def _clean_expiry(value) -> str | None:
-    """DD-MM-YYYY — wahi shakl jo Delta ka API leta hai."""
+    """DD-MM-YYYY - the shape Delta's API expects."""
     if not isinstance(value, str):
         return None
     parts = value.strip().split("-")
@@ -79,12 +78,12 @@ def _clean_float(value, lo: float, hi: float) -> float | None:
 
 
 def _clean_band(value, lo: float = 0.0, hi: float = 100.0) -> tuple | None:
-    """"15-25" -> (15.0, 25.0). Ulta diya ho to seedha kar deta hai.
+    """"15-25" -> (15.0, 25.0). A reversed pair is read as a range.
 
-    Negative values jaan-boojh kar reject hote hain, clamp nahi. Jin sliders ko
-    ye band feed karta hai wo 0-100 par hain, to "-50" ka koi matlab hi nahi —
-    aur "-50-500" jaisi string do tarah se padhi ja sakti hai. Do matlab wali
-    input ko guess karne se behtar hai use gira dena.
+    Negative values are rejected rather than clamped, deliberately. The sliders
+    this band feeds are 0-100, so "-50" has no meaning - and a string like
+    "-50-500" can be parsed two different ways. An input with two readings is
+    better dropped than guessed at.
     """
     if not isinstance(value, str):
         return None
@@ -99,10 +98,10 @@ def _clean_band(value, lo: float = 0.0, hi: float = 100.0) -> tuple | None:
 
 
 def decode(params: dict) -> dict:
-    """URL params se session_state ke updates.
+    """Turn URL params into session_state updates.
 
-    Sirf wahi keys lautati hai jo valid hain — baaki chhod di jaati hain, taaki
-    ek galat param poore view ko na bigaade.
+    Only valid keys are returned; the rest are left out, so one bad param
+    cannot spoil the whole view.
     """
     out = {}
     if not isinstance(params, dict):
@@ -136,10 +135,10 @@ def decode(params: dict) -> dict:
 
 
 def encode(state: dict) -> dict:
-    """session_state se URL params.
+    """Turn session_state into URL params.
 
-    Sirf wahi likhta hai jo maujood aur samajh mein aata ho, taaki URL
-    `?u=&e=&p=` jaise khaali kachre se na bhare.
+    Only writes values that are present and understood, so the URL does not
+    fill with empty noise like `?u=&e=&p=`.
     """
     out = {}
     if not isinstance(state, dict):

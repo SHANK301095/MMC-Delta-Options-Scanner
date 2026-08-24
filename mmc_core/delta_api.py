@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import math
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import requests
@@ -65,50 +65,51 @@ def _get(path: str, params: dict | None = None) -> dict:
     try:
         resp = requests.get(url, params=params or {},
                             headers=HEADERS, timeout=TIMEOUT)
-    except requests.exceptions.ConnectTimeout:
+    except requests.exceptions.ConnectTimeout as exc:
         raise DeltaApiError(
-            "Delta se connection nahi bana (connect timeout). "
-            "Internet check karein, ya Delta down ho sakta hai."
-        )
-    except requests.exceptions.ReadTimeout:
+            "Could not connect to Delta (connect timeout). "
+            "Check your internet connection, or Delta may be down."
+        ) from exc
+    except requests.exceptions.ReadTimeout as exc:
         raise DeltaApiError(
-            "Delta ne 25 second mein reply nahi diya (read timeout). "
-            "Refresh interval badha kar dobara try karein."
-        )
-    except requests.exceptions.ConnectionError:
+            "Delta did not respond within 25 seconds (read timeout). "
+            "Increase the refresh interval and try again."
+        ) from exc
+    except requests.exceptions.ConnectionError as exc:
         raise DeltaApiError(
-            "Network error - api.india.delta.exchange tak pahunch nahi paye. "
-            "WiFi / VPN / firewall check karein."
-        )
+            "Network error - could not reach api.india.delta.exchange. "
+            "Check your WiFi, VPN or firewall."
+        ) from exc
 
     if resp.status_code == 429:
         reset_ms = resp.headers.get("X-RATE-LIMIT-RESET", "?")
         raise DeltaApiError(
-            f"Rate limit hit (HTTP 429). Delta ka quota 5 minute ka hai. "
-            f"Reset in ~{reset_ms} ms. Sidebar mein refresh interval badhaiye."
+            f"Rate limit hit (HTTP 429). Delta's quota is per 5-minute window. "
+            f"Resets in ~{reset_ms} ms. Increase the refresh interval in the "
+            f"sidebar."
         )
     if resp.status_code == 403:
         raise DeltaApiError(
-            "HTTP 403 - request CDN ne block kar di. "
-            "Kisi VPN / proxy ke through chal rahe hon to band karke try karein."
+            "HTTP 403 - the request was blocked by the CDN. "
+            "If you are running through a VPN or proxy, turn it off and retry."
         )
     if resp.status_code >= 500:
         raise DeltaApiError(
             f"Delta server error (HTTP {resp.status_code}). "
-            "Ye unke side ka issue hai - thodi der baad try karein."
+            "This is an issue on their side - try again shortly."
         )
     if resp.status_code != 200:
         raise DeltaApiError(f"Unexpected HTTP {resp.status_code} from {path}")
 
     try:
         data = resp.json()
-    except ValueError:
-        raise DeltaApiError(f"{path} ne valid JSON nahi bheja.")
+    except ValueError as exc:
+        raise DeltaApiError(f"{path} did not return valid JSON.") from exc
 
     if not data.get("success", False):
         err = data.get("error", {})
         code = err.get("code") if isinstance(err, dict) else err
-        raise DeltaApiError(f"Delta API ne error diya: {code}")
+        raise DeltaApiError(f"Delta API returned an error: {code}")
 
     return data
 
@@ -283,8 +284,8 @@ def fetch_option_products() -> pd.DataFrame:
 
     if not rows:
         raise DeltaApiError(
-            "Delta se koi live option contract nahi mila. "
-            "Ye asaadharan hai - Delta status page check karein."
+            "Delta returned no live option contracts. "
+            "That is unusual - check the Delta status page."
         )
 
     df = pd.DataFrame(rows)

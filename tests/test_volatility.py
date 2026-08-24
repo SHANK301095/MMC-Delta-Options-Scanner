@@ -1,9 +1,9 @@
-"""VIX-style volatility index ke tests.
+"""Tests for the VIX-style volatility index.
 
-Sabse zaroori test wo hai jo formula ki jaan pakadta hai: agar chain ek known
-volatility se banayi gayi ho, to model-free formula ko wahi volatility wapas
-deni chahiye. Ye ek round-trip hai — koi bhi weight, sign, ya dK galat hoga to
-yahan turant pakda jayega.
+The load-bearing test is the one that grips the formula itself: if the chain
+was built from a known volatility, the model-free formula must return that same
+volatility. It is a round trip - any wrong weight, sign or dK is caught at
+once.
 """
 
 from __future__ import annotations
@@ -20,11 +20,11 @@ S = 100_000.0
 
 def _lognormal_chain(sigma: float, t_years: float, r: float = 0.0,
                      lo: float = 0.3, hi: float = 3.0, step: float = 0.01):
-    """Black-Scholes se banayi chain — bid == ask, koi spread nahi.
+    """A chain built from Black-Scholes, with bid == ask and no spread.
 
-    Wings chaude aur grid baarik rakhi hai kyunki discrete sum tabhi asli
-    integral ke kareeb aata hai. Tang range par formula khud sahi hote hue bhi
-    kam number degi — wo formula ka bug nahi, truncation hai.
+    The wings are wide and the grid fine, because only then does the discrete
+    sum approach the true integral. On a narrow range the formula returns a low
+    number while remaining correct - that is truncation, not a bug.
     """
     calls, puts = {}, {}
     k = S * lo
@@ -68,7 +68,7 @@ def test_forward_equals_spot_at_zero_rate():
 
 
 def test_forward_carries_the_rate():
-    """Options ka reference forward hota hai, spot nahi — r par F badhna chahiye."""
+    """An option's reference is the forward, not spot - F must rise with r."""
     t, r = 30 / 365.0, 0.10
     calls, puts = _lognormal_chain(0.55, t, r=r)
     got = vol.forward_level(calls, puts, t, r)["forward"]
@@ -95,23 +95,23 @@ def test_forward_on_a_chain_with_no_two_sided_strike_is_nan():
 # --------------------------------------------------------- zero bids
 
 def _sparse_chain(put_bids, call_bids):
-    """K0 = 100. Neeche puts, upar calls, diye gaye bids ke saath."""
+    """K0 = 100. Puts below and calls above, with the given bids."""
     calls = {100.0: {"bid": 5.0, "ask": 5.0}}
     puts = {100.0: {"bid": 5.0, "ask": 5.0}}
-    for i, bid in enumerate(put_bids):          # 95, 90, 85 ... K0 se neeche
+    for i, bid in enumerate(put_bids):          # 95, 90, 85 ... below K0
         k = 95.0 - 5.0 * i
         puts[k] = {"bid": bid, "ask": bid + 0.5 if bid > 0 else 0.5}
-    for i, bid in enumerate(call_bids):         # 105, 110, 115 ... K0 se upar
+    for i, bid in enumerate(call_bids):         # 105, 110, 115 ... above K0
         k = 105.0 + 5.0 * i
         calls[k] = {"bid": bid, "ask": bid + 0.5 if bid > 0 else 0.5}
     return calls, puts
 
 
 def test_summation_stops_after_two_consecutive_zero_bids():
-    """Wings ke dead strikes ka junk quote variance ko uchaal deta hai."""
+    """A junk quote on a dead wing strike inflates the variance."""
     calls, puts = _sparse_chain([3.0, 0.0, 0.0, 9.9], [3.0, 0.0, 0.0, 9.9])
     out = vol.expiry_variance(calls, puts, 0.1)
-    # K0 + ek put + ek call = 3. Do zero ke baad ka 9.9 wala strike bahar.
+    # K0 + one put + one call = 3. The 9.9 strike beyond two zeros is excluded.
     assert out["strikes_used"] == 3
 
 
@@ -150,15 +150,15 @@ def test_interpolation_between_two_equal_vols_returns_that_vol():
 
 
 def test_interpolation_is_on_variance_not_on_volatility():
-    """Sigma ko seedha interpolate karna classic aur chup-chaap galat hai."""
+    """Interpolating sigma directly is a classic and quietly wrong shortcut."""
     near = {"t_years": 20 / 365.0, "sigma2": 0.4 ** 2}
     far = {"t_years": 60 / 365.0, "sigma2": 0.8 ** 2}
 
     got = vol.interpolate_to_target(near, far, target_days=30.0)
 
-    # Total-variance weighting ka sahi jawab
+    # The correct answer under total-variance weighting
     assert got == pytest.approx(math.sqrt(0.4), rel=1e-6)
-    # Sigma par seedha interpolate karne ka (galat) jawab
+    # The (wrong) answer from interpolating sigma directly
     naive = 0.4 * 0.75 + 0.8 * 0.25
     assert got != pytest.approx(naive, rel=1e-3)
 
@@ -185,20 +185,20 @@ def test_index_is_constant_maturity_when_two_expiries_bracket_30_days():
 
 
 def test_index_refuses_to_extrapolate_when_every_expiry_is_short():
-    """30-din ka number bana dena jab 30 din ka data hi na ho — confident
-    dikhne wala jhoot hai. Jo maturity hai wahi report honi chahiye."""
+    """Producing a 30-day number without 30 days of data is a confident-looking
+    falsehood. The maturity that exists is what must be reported."""
     out = vol.volatility_index([_exp(3, 0.9), _exp(10, 0.7)])
     assert out["constant_maturity"] is False
     assert out["basis_days"] == pytest.approx(10.0)
     assert out["value"] == pytest.approx(70.0, rel=1e-6)
-    assert "30 din se kam" in out["note"]
+    assert "shorter than 30 days" in out["note"]
 
 
 def test_index_refuses_to_extrapolate_when_every_expiry_is_long():
     out = vol.volatility_index([_exp(60, 0.4), _exp(120, 0.5)])
     assert out["constant_maturity"] is False
     assert out["basis_days"] == pytest.approx(60.0)
-    assert "30 din se zyada" in out["note"]
+    assert "longer than 30 days" in out["note"]
 
 
 def test_index_picks_the_pair_that_actually_brackets_the_target():
@@ -243,8 +243,8 @@ def test_reversed_regime_band_is_read_as_a_range():
 
 
 def test_regime_on_an_unknown_index_never_claims_you_are_in_regime():
-    """Index compute na ho paaya ho to 'conditions poori hain' kehna khatarnak
-    hai — wo trade ki ijazat de dega jiska aadhaar hi nahi hai."""
+    """If the index could not be computed, claiming "conditions are met" is
+    dangerous - it authorises a trade with no basis at all."""
     out = vol.regime_status(float("nan"), (40.0, 80.0))
     assert out["in_regime"] is False
     assert out["position"] == "unknown"
@@ -260,10 +260,10 @@ def test_coverage_reports_the_distance_reached_on_each_side():
 
 
 @pytest.mark.parametrize("k_min, k_max, expected", [
-    (85.0, 130.0, "down"),     # neeche tang
-    (70.0, 110.0, "up"),       # upar tang
-    (90.0, 110.0, "both"),     # dono taraf tang
-    (60.0, 150.0, None),       # theek
+    (85.0, 130.0, "down"),     # narrow below
+    (70.0, 110.0, "up"),       # narrow above
+    (90.0, 110.0, "both"),     # narrow on both sides
+    (60.0, 150.0, None),       # adequate
 ])
 def test_coverage_names_the_narrow_side(k_min, k_max, expected):
     assert vol.coverage(k_min, k_max, 100.0)["narrow_side"] == expected
@@ -275,7 +275,7 @@ def test_coverage_on_a_bad_forward_says_unknown_not_fine():
 
 
 def test_a_narrow_chain_understates_the_index():
-    """Ye bias asli hai — isi liye page use dikhata hai, chupata nahi."""
+    """This bias is real, which is why the page shows it rather than hiding it."""
     t = 90 / 365.0
     wide_c, wide_p = _lognormal_chain(0.55, t, lo=0.3, hi=3.0, step=0.02)
     narrow_c, narrow_p = _lognormal_chain(0.55, t, lo=0.85, hi=1.15, step=0.02)
@@ -284,5 +284,5 @@ def test_a_narrow_chain_understates_the_index():
     narrow = math.sqrt(vol.expiry_variance(narrow_c, narrow_p, t)["sigma2"])
 
     assert wide == pytest.approx(0.55, rel=0.02)
-    assert narrow < wide * 0.9          # spashth roop se kam
+    assert narrow < wide * 0.9          # materially lower
     assert vol.expiry_variance(narrow_c, narrow_p, t)["coverage"]["narrow_side"] == "both"

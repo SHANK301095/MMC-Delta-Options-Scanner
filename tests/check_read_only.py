@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Read-only guard — CI gate, pytest ka hissa nahi.
+"""Read-only guard - a CI gate, not part of the pytest suite.
 
-Is project ka ek hi security promise hai: ye Delta ke public market-data
-endpoints ke alawa kuch nahi chhoota. Koi API key, koi signing, koi order
-placement. Wo promise ek accidental commit se toot sakta hai, isliye CI har
-push par ise machine se verify karta hai — README ke bharose nahi.
+This project makes one security promise: it touches nothing beyond Delta's
+public market-data endpoints. No API key, no signing, no order placement. A
+single careless commit could break that promise, so CI verifies it by machine on
+every push rather than trusting the README.
 
-Non-zero exit = build fail.
+A non-zero exit fails the build.
 """
 
 from __future__ import annotations
@@ -17,11 +17,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Har pattern: (regex, kya galat hai)
+# Each entry: (regex, what is wrong with it)
 FORBIDDEN = [
-    (r"\bapi[_-]?secret\b", "API secret ka reference"),
-    (r"\bapi[_-]?key\b", "API key ka reference"),
-    (r"\bhmac\b", "HMAC signing (private endpoints ke liye hota hai)"),
+    (r"\bapi[_-]?secret\b", "reference to an API secret"),
+    (r"\bapi[_-]?key\b", "reference to an API key"),
+    (r"\bhmac\b", "HMAC signing (used for private endpoints)"),
     (r"\bsignature\s*=", "request signing"),
     (r"requests\.(post|put|delete|patch)\s*\(", "state-changing HTTP call"),
     (r"/v2/orders\b", "orders endpoint"),
@@ -30,7 +30,7 @@ FORBIDDEN = [
     (r"place_order|cancel_order|create_order", "order placement helper"),
 ]
 
-# Ye file khud in patterns ko naam se mention karti hai.
+# This file names the patterns itself, so it is exempt.
 SKIP = {Path(__file__).name}
 
 
@@ -43,8 +43,8 @@ def main() -> int:
         text = path.read_text(encoding="utf-8", errors="replace")
         for lineno, line in enumerate(text.splitlines(), start=1):
             stripped = line.strip()
-            # Comments aur docstring prose mein in shabdon ka aana theek hai —
-            # README aur module docs khud samjhate hain ki ye code kyun NAHI hai.
+            # These words are fine in comments and docstring prose - the README
+            # and module docs explain why this code is deliberately absent.
             if stripped.startswith("#"):
                 continue
             for pattern, why in FORBIDDEN:
@@ -53,12 +53,12 @@ def main() -> int:
                     problems.append(f"  {rel}:{lineno}  [{why}]\n      {stripped}")
 
     if problems:
-        print("READ-ONLY GUARD FAIL — ye project sirf public market data padhta hai:")
+        print("READ-ONLY GUARD FAILED - this project reads public market data only:")
         print("\n".join(problems))
         return 1
 
-    print(f"Read-only guard OK — {len(list(ROOT.rglob('*.py')))} files scanned, "
-          "koi API key / signing / order-placement code nahi mila.")
+    print(f"Read-only guard OK - {len(list(ROOT.rglob('*.py')))} files scanned, "
+          "no API key, signing or order-placement code found.")
     return 0
 
 

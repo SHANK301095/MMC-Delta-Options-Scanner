@@ -1,10 +1,10 @@
-"""Design system aur chart rules ke tests.
+"""Tests for the design system and the charting rules.
 
-Yahan do tarah ki cheezein hain. Ek, theme ke helpers — jo `unsafe_allow_html`
-par render hote hain, isliye unka escaping test hona zaroori hai. Do, wo do
-niyam jo charts.py ne apne docstring mein tay kiye hain: ek chart ek y-axis,
-aur calls/puts kabhi sirf rang se alag nahi. Dono aise niyam hain jo bina test
-ke agli baar chupke se toot jaate.
+Two kinds of thing are covered here. First, the theme helpers - they render
+through `unsafe_allow_html`, so their escaping has to be tested. Second, the two
+rules charts.py sets out in its own docstring: one chart, one y-axis; and calls
+and puts are never separated by colour alone. Both are the kind of rule that
+quietly breaks next time without a test holding it.
 """
 
 from __future__ import annotations
@@ -28,9 +28,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
     ("<b>bold</b>", "<b>"),
 ])
 def test_components_escape_their_input(raw, must_not_contain):
-    """Ye components unsafe_allow_html par chalte hain aur inke labels chain se
-    aate hain — symbols, expiry names, API error messages. Bina escape kiye ek
-    adhoora tag poora layout tod sakta hai."""
+    """These components run through unsafe_allow_html and their labels come
+    from the chain - symbols, expiry names, API error messages. Without
+    escaping, a single unclosed tag can break the whole layout."""
     for markup in (theme.stat("label", raw), theme.stat(raw, "value"),
                    theme.badge(raw, "good"), theme.section(raw),
                    theme.empty_state("i", raw, raw),
@@ -47,9 +47,9 @@ def test_escaping_keeps_the_text_readable():
 
 @pytest.mark.parametrize("tone", ["good", "warn", "serious", "critical", "neutral"])
 def test_every_badge_carries_a_shape_and_a_word_not_just_colour(tone):
-    """Status kabhi rang par akela nahi tik sakta: light surfaces par warning
-    aur serious 3:1 se neeche hain, aur CVD mein do status rang paas aa jaate
-    hain. Isliye har badge mein dot aur poora shabd dono hain."""
+    """Status can never rest on colour alone: on light surfaces warning and
+    serious fall below 3:1, and under CVD two status colours can converge. So
+    every badge carries both a shape dot and the full word."""
     markup = theme.badge("REGIME OK", tone)
     assert "REGIME OK" in markup
     assert 'class="dot"' in markup
@@ -59,7 +59,7 @@ def test_every_badge_carries_a_shape_and_a_word_not_just_colour(tone):
 
 
 def test_unknown_tone_falls_back_to_neutral_not_to_a_status_colour():
-    """Ek typo ko chup-chaap 'good' nahi ban jaana chahiye."""
+    """A typo must not quietly become "good"."""
     markup = theme.badge("x", "banana")
     assert theme.STATUS_GOOD not in markup
     assert theme.INK_3 in markup
@@ -109,14 +109,14 @@ def test_hero_renders_with_and_without_a_badge():
 # ------------------------------------------------- theme / config drift
 
 def test_streamlit_config_colours_match_the_theme_tokens():
-    """config.toml Streamlit ke apne widgets ko rangti hai; theme.py hamari CSS
-    aur charts ko. Dono alag ho gaye to app do halves mein bat jaata hai, aur
-    wo aankh se pakadna mushkil hota hai — isliye machine pakadti hai."""
+    """config.toml colours Streamlit's own widgets; theme.py colours our CSS
+    and charts. If the two drift, the app splits into two halves - and that is
+    hard to catch by eye, so the machine catches it."""
     text = (REPO_ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
 
     def value_of(key):
         found = re.search(rf'^{key}\s*=\s*"([^"]+)"', text, re.MULTILINE)
-        assert found, f"{key} config.toml mein nahi mila"
+        assert found, f"{key} not found in config.toml"
         return found.group(1).lower()
 
     assert value_of("base") == "dark"
@@ -134,8 +134,8 @@ def test_injected_css_is_built_from_the_tokens():
 
 
 def test_tables_ask_for_tabular_figures():
-    """Bina tabular figures ke option chain ke digits har row mein hilte hain
-    aur do keemtein aankh se compare karna namumkin ho jaata hai."""
+    """Without tabular figures an option chain's digits shift row to row, and
+    comparing two prices by eye becomes impossible."""
     assert "tabular-nums" in theme._css()
 
 
@@ -162,9 +162,9 @@ def _all_figures():
 
 @pytest.mark.parametrize("name", list(_all_figures()))
 def test_no_chart_has_a_second_y_axis(name):
-    """Do y-scales ek plot par sabse mehngi chart galti hai: alignment manmaana
-    hota hai, isliye chart ek aisa rishta dikha deta hai jo data mein hai hi
-    nahi. decay_curve pehle isi galti par tha."""
+    """Two y-scales on one plot is the most expensive charting mistake: the
+    alignment is arbitrary, so the chart shows a relationship the data does not
+    contain. decay_curve used to make exactly this mistake."""
     layout = _all_figures()[name].layout
     assert "yaxis2" not in layout
     assert not any(getattr(layout[k], "overlaying", None)
@@ -172,8 +172,8 @@ def test_no_chart_has_a_second_y_axis(name):
 
 
 def test_decay_curve_keeps_both_series_on_one_axis():
-    """Premium bacha aur cumulative burn dono ₹ per lot hain aur aapas mein
-    judi hain — ek hi axis hi imaandaar hai."""
+    """Premium remaining and cumulative burn are both rupees per lot and are
+    two halves of one quantity - a single axis is the only honest option."""
     fig = ch.decay_curve([1.0, 2.0], [10.0, 8.0], [0.0, 2.0])
     assert len(fig.data) == 2
     assert all(trace.yaxis in (None, "y") for trace in fig.data)
@@ -181,9 +181,10 @@ def test_decay_curve_keeps_both_series_on_one_axis():
 
 @pytest.mark.parametrize("name", ["volatility_smile", "delta_profile"])
 def test_calls_and_puts_differ_by_more_than_colour(name):
-    """Green/put-red market ki bhasha hai, par theek yahi jodi protanopia mein
-    sabse kam alag dikhti hai (CVD ΔE 6.5 — warn band). Isliye rang ke saath
-    ek doosra channel lazmi hai: marker shape ya line dash."""
+    """Green for calls and red for puts is the market's own language, but it is
+    also the pair that separates worst under protanopia (CVD dE 6.5, inside the
+    warn band). So a second channel alongside colour is mandatory: marker shape
+    or line dash."""
     fig = _all_figures()[name]
     call = next(t for t in fig.data if t.name and t.name.startswith("Call"))
     put = next(t for t in fig.data if t.name and t.name.startswith("Put"))
@@ -192,20 +193,20 @@ def test_calls_and_puts_differ_by_more_than_colour(name):
     dash_differs = (getattr(call.line, "dash", None)
                     != getattr(put.line, "dash", None))
     assert shape_differs or dash_differs, (
-        f"{name}: calls aur puts sirf rang se alag hain")
+        f"{name}: calls and puts are separated by colour alone")
 
 
 def test_every_multi_series_chart_keeps_its_legend():
-    """Do ya zyada series par identity kabhi rang par akeli nahi chhodi jaati."""
+    """With two or more series, identity is never left to colour alone."""
     for name, fig in _all_figures().items():
         named = [t for t in fig.data if t.name and t.showlegend is not False]
         if len(named) >= 2:
-            assert fig.layout.showlegend is not False, f"{name} ka legend gayab hai"
+            assert fig.layout.showlegend is not False, f"{name} is missing its legend"
 
 
 def test_spot_reference_line_is_ink_not_a_series_colour():
-    """Reference line ka kaam jagah batana hai, series se muqabla karna nahi —
-    warna wo ek free colour slot kha jaati hai."""
+    """A reference line's job is to mark a position, not to compete with the
+    series - otherwise it consumes a free colour slot."""
     fig = ch.oi_profile([90.0, 100.0], [1.0, 1.0], [1.0, 1.0], 95.0)
     vlines = [sh for sh in fig.layout.shapes if sh.type == "line"]
     assert vlines
@@ -217,9 +218,9 @@ def test_spot_reference_line_is_ink_not_a_series_colour():
 # --------------------------------------------------------- table height
 
 @pytest.mark.parametrize("rows, expected", [
-    (0, 120), (1, 120), (2, 120),        # min par rukti hai
-    (8, 40 + 8 * 35),                    # content ke saath badhti hai
-    (500, 460),                          # cap par rukti hai, phir scroll
+    (0, 120), (1, 120), (2, 120),        # holds at the minimum
+    (8, 40 + 8 * 35),                    # grows with the content
+    (500, 460),                          # stops at the cap, then scrolls
 ])
 def test_table_height_grows_with_rows_then_caps(rows, expected):
     assert theme.table_height(rows) == expected

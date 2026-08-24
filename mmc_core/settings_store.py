@@ -31,18 +31,19 @@ from pathlib import Path
 
 SETTINGS_FILE = Path(__file__).resolve().parent.parent / "mmc_settings.json"
 
-# Launcher scripts ise set karte hain; cloud deployment nahi karta.
+# The launcher scripts set this; a cloud deployment does not.
 LOCAL_ENV_FLAG = "MMC_LOCAL_SETTINGS"
 
 
 def is_enabled() -> bool:
-    """File store sirf tab jab app single-user local run ho."""
+    """The file store runs only for a single-user local session."""
     return os.environ.get(LOCAL_ENV_FLAG, "").strip() == "1"
 
 
 def disabled_reason() -> str:
-    return ("Ye app ek shared process hai, isliye server par save karna sabka "
-            "setting badal deta. Aapka view URL mein hai — bookmark kar lijiye.")
+    return ("This app runs as a shared process, so saving on the server would "
+            "change the settings for everyone. Your view lives in the URL - "
+            "bookmark it instead.")
 
 # Only these keys are ever persisted. An unknown key in the file is ignored,
 # so a stale settings file from an older version can never crash the app.
@@ -73,7 +74,7 @@ def load_settings() -> dict:
     try:
         if not SETTINGS_FILE.exists():
             return {}
-        with open(SETTINGS_FILE, "r", encoding="utf-8") as fh:
+        with open(SETTINGS_FILE, encoding="utf-8") as fh:
             data = json.load(fh)
         if not isinstance(data, dict):
             return {}

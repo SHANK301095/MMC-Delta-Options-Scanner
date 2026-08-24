@@ -25,7 +25,6 @@ import pandas as pd
 import streamlit as st
 
 from mmc_core import charts as ch
-from mmc_core import delta_api as api
 from mmc_core import fees as fx
 from mmc_core import options_math as om
 from mmc_core import theme
@@ -60,9 +59,9 @@ filtered = ui.apply_liquidity_filter(df, **liq)
 
 if filtered.empty:
     st.markdown(theme.empty_state(
-        "🎯", "Koi leg available nahi hai",
-        "Payoff banane ke liye kam se kam ek tradable contract chahiye. "
-        "Sidebar mein liquidity filter dheela kijiye."
+        "🎯", "No legs are available",
+        "A payoff needs at least one tradable contract. Loosen the liquidity "
+        "filter in the sidebar."
     ), unsafe_allow_html=True)
     ui.render_diagnostics(context, df, settings)
     ui.maybe_auto_refresh(settings)
@@ -94,10 +93,10 @@ def find_label(strike: float, is_call: bool):
 # Preset strategies
 # ==========================================================================
 
-st.markdown(theme.section("1 · Strategy chunein"), unsafe_allow_html=True)
+st.markdown(theme.section("1 · Choose a strategy"), unsafe_allow_html=True)
 
 PRESETS = [
-    "Custom (khaali)", "Short Straddle", "Long Straddle",
+    "Custom (empty)", "Short Straddle", "Long Straddle",
     "Short Strangle", "Long Strangle", "Iron Condor",
     "Bull Call Spread", "Bear Put Spread", "Covered-style Short Put",
 ]
@@ -107,7 +106,8 @@ with pc1:
     preset = st.selectbox("Preset", PRESETS, index=1, key="preset_pick")
 with pc2:
     width_pct = st.slider("Wing width (% from spot)", 1, 30, 5,
-                          help="Strangle / condor / spread ke wings kitne door hon.")
+                          help="How far out the wings sit on a strangle, "
+                               "condor or spread.")
 
 atm = nearest_strike(spot)
 up = nearest_strike(spot * (1 + width_pct / 100.0))
@@ -148,8 +148,8 @@ if not seed_rows:
     fallback = find_label(atm, True)
     seed_rows = [{"Leg": fallback or options_list[0], "Side": "Sell", "Lots": 1}]
 
-st.markdown(theme.section("2 · Legs adjust kijiye"), unsafe_allow_html=True)
-st.caption("Rows add / delete kar sakte hain. Preset badalne par table reset hoga.")
+st.markdown(theme.section("2 · Adjust the legs"), unsafe_allow_html=True)
+st.caption("Rows can be added or deleted. Changing the preset resets the table.")
 
 edited = st.data_editor(
     pd.DataFrame(seed_rows),
@@ -182,7 +182,7 @@ for _, e in edited.iterrows():
                  "lots": n_lots, "label": label})
 
 if not legs:
-    st.info("Kam se kam ek valid leg add kijiye.")
+    st.info("Add at least one valid leg.")
     ui.render_diagnostics(context, df, settings)
     ui.maybe_auto_refresh(settings)
     st.stop()
@@ -238,7 +238,9 @@ total_fee_inr = total_fee_usd * usdinr
 net_theta_inr = net_theta * usdinr
 net_vega_inr = net_vega * usdinr
 
-st.markdown(theme.section("3 · Entry economics", "executable fills, fees dono taraf"), unsafe_allow_html=True)
+st.markdown(
+    theme.section("3 · Entry economics", "executable fills, fees on both sides"),
+            unsafe_allow_html=True)
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Net premium",
@@ -248,7 +250,7 @@ m1.metric("Net premium",
 m2.metric("Round-trip fees", f"₹{total_fee_inr:,.2f}",
           help="Entry + exit, GST included, premium cap applied.")
 m3.metric("Net θ / day", f"₹{net_theta_inr:,.2f}",
-          help="Positive = decay aapke favour mein.")
+          help="Positive means decay works in your favour.")
 m4.metric("Net Δ", f"{net_delta:+.5f} {settings['underlying']}")
 
 g1, g2, g3 = st.columns(3)
@@ -266,8 +268,9 @@ st.dataframe(
     width="stretch", hide_index=True)
 
 if mode == "realistic":
-    st.caption("💡 *Fill price* = Buy par ASK, Sell par BID. *vs Mark* batata hai "
-               "ki spread cross karne mein har leg par kitna gaya.")
+    st.caption("💡 *Fill price* is the ASK when buying and the BID when "
+               "selling. *vs Mark* shows what crossing the spread cost on "
+               "each leg.")
 
 # ==========================================================================
 # Payoff
@@ -279,7 +282,7 @@ rng = st.slider("Spot range (± % from now)", 5, 60, 20)
 lo_s, hi_s = spot * (1 - rng / 100.0), spot * (1 + rng / 100.0)
 spots = np.linspace(lo_s, hi_s, 401)
 
-include_fees = st.checkbox("Fees payoff mein shaamil karein", value=True)
+include_fees = st.checkbox("Include fees in the payoff", value=True)
 fee_drag_inr = total_fee_inr if include_fees else 0.0
 
 # ---- Payoff at expiry -----------------------------------------------------
@@ -297,10 +300,10 @@ for s_px in spots:
 
 # ---- Payoff at a chosen future date (T+n) ---------------------------------
 min_days = min(float(L["row"]["t_years"]) for L in legs) * 365.0
-days_ahead = st.slider("T+0 curve: kitne din baad", 0.0,
+days_ahead = st.slider("T+0 curve: how many days ahead", 0.0,
                        max(0.1, round(min_days, 2)), 0.0, step=0.25,
-                       help="0 = abhi. Slider badhane par curve expiry line ki "
-                            "taraf jaata hai.")
+                       help="0 is now. Raising it moves the curve towards the "
+                            "expiry line.")
 
 payoff_now = []
 for s_px in spots:
@@ -322,7 +325,7 @@ for s_px in spots:
 # ---- Break-evens ----------------------------------------------------------
 breakevens = om.find_breakevens(spots.tolist(), payoff_expiry)
 
-label_now = "Abhi (T+0)" if days_ahead == 0 else f"T+{days_ahead:g} din"
+label_now = "Now (T+0)" if days_ahead == 0 else f"T+{days_ahead:g} days"
 st.plotly_chart(
     ch.payoff_diagram(spots.tolist(), payoff_expiry, spot,
                       payoff_now=payoff_now, breakevens=breakevens,
@@ -337,44 +340,44 @@ at_spot = float(np.interp(spot, spots, payoff_expiry))
 
 # Unbounded detection: if the payoff is still climbing / falling as it runs off
 # the plotted range, the true max or min is not on screen. Judged per EDGE and
-# per DIRECTION — see options_math.payoff_tail_risk for why "spot girta hai"
-# aur "position loss mein hai" do alag sawaal hain.
+# per DIRECTION - see options_math.payoff_tail_risk for why "spot falls" and
+# "the position loses" are two different questions.
 tail = om.payoff_tail_risk(payoff_expiry)
 unlimited_profit = tail["unlimited_profit"]
 unlimited_loss = tail["unlimited_loss"]
 
 p1, p2, p3, p4 = st.columns(4)
-p1.metric("Max profit (range mein)",
+p1.metric("Max profit (in range)",
           "Unlimited ↑" if unlimited_profit else f"₹{max_profit:,.0f}")
-p2.metric("Max loss (range mein)",
+p2.metric("Max loss (in range)",
           "Unlimited ↓" if unlimited_loss else f"₹{max_loss:,.0f}")
-p3.metric("P&L agar spot na hile", f"₹{at_spot:,.0f}")
+p3.metric("P&L if spot does not move", f"₹{at_spot:,.0f}")
 p4.metric("Break-evens",
           " / ".join(f"{b:,.0f}" for b in breakevens) if breakevens else "None")
 
 if breakevens and len(breakevens) >= 2:
     width_abs = max(breakevens) - min(breakevens)
     st.caption(f"Profit zone: **{min(breakevens):,.0f} → {max(breakevens):,.0f}** "
-               f"(±{width_abs / 2 / spot * 100:.1f}% spot se) — "
+               f"(±{width_abs / 2 / spot * 100:.1f}% from spot), "
                f"width {width_abs:,.0f} points")
 elif breakevens:
     st.caption(f"Single break-even at **{breakevens[0]:,.0f}** "
                f"({(breakevens[0] - spot) / spot * 100:+.1f}% from spot)")
 
 if unlimited_loss:
-    st.error("⚠️ **Undefined risk.** Is position ka max loss theoretically "
-             "unlimited hai. Delta par liquidation bhi automatic hai — "
-             "position size aur margin dono pehle check kar lijiye.")
+    st.error("⚠️ **Undefined risk.** This position's maximum loss is "
+             "theoretically unlimited, and liquidation on Delta is automatic. "
+             "Check your position size and margin before entering.")
 
 if net_theta_inr > 0 and abs(net_gamma) > 0:
     st.warning(
-        f"**Short gamma trade-off:** Aap ₹{net_theta_inr:,.2f}/day theta kama "
-        f"rahe hain, lekin net gamma {net_gamma:+.8f} hai. Ek bada gap-move "
-        "ek hi din mein kai dinon ka theta kha sakta hai. Ye hi is trade ka "
-        "asli risk hai — decay nahi."
+        f"**Short gamma trade-off:** you are earning ₹{net_theta_inr:,.2f}/day "
+        f"in theta against a net gamma of {net_gamma:+.8f}. One large gap can "
+        "erase several days of theta in a single session. That, not decay, is "
+        "this trade's real risk."
     )
 
-with st.expander("📋 Payoff table (har 5% par)"):
+with st.expander("📋 Payoff table (every 5%)"):
     marks = [spot * (1 + p / 100.0) for p in range(-rng, rng + 1, 5)]
     tbl = pd.DataFrame({
         "Spot": marks,

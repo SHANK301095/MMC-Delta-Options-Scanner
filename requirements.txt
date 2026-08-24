@@ -3,6 +3,7 @@ requests>=2.31
 pandas>=2.0.0
 numpy>=1.24
 plotly>=5.18
-# Styler.background_gradient (decay scanner, mispricing, payoff tables) ke liye
-# pandas ko matplotlib chahiye. Iske bina wo pages ImportError par crash karte hain.
+# pandas needs matplotlib for Styler.background_gradient, which the decay
+# scanner, mispricing and payoff tables use. Without it those pages crash
+# with an ImportError.
 matplotlib>=3.7

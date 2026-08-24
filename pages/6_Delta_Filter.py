@@ -1,26 +1,24 @@
 """
-MMC Delta Scanner — Delta Filter + Live Rates
+MMC Delta Scanner - Delta Filter + Live Rates
 =============================================
-Ek hi sawaal ka jawab: "mujhe X delta ke options chahiye — abhi ke rate kya hain?"
+Answers one question: "I want options around X delta - what are they trading
+at right now?"
 
-Traders strike ko delta se chunte hain, strike price se nahi. "25 delta put
-bech do" apne aap mein ek poora instruction hai, aur wo har expiry par alag
-strike ban jaata hai. Ye page delta ko primary control banata hai aur strike
-ko result.
+Traders pick a strike by delta, not by strike price. "Sell the 25 delta put" is
+a complete instruction on its own, and it lands on a different strike every
+expiry. This page makes delta the primary control and the strike the result.
 
-Band ABSOLUTE delta par lagta hai — 25 maangne par 0.25 delta call aur −0.25
-delta put dono aate hain, kyunki wahi market convention hai.
+The band applies to ABSOLUTE delta - asking for 25 returns both the 0.25 delta
+call and the -0.25 delta put, because that is the market convention.
 
 WHY THE PRICES HERE ARE NOT MARK PRICE
 --------------------------------------
-Har row "Buy @" aur "Sell @" dikhata hai — sidebar ke price basis se. Default
-Realistic hai: kharidte waqt ASK, bechte waqt BID. Mark price par koi fill
-nahi hota, aur is chain par spreads chaude hain.
+Every row shows "Buy @" and "Sell @" from the sidebar's price basis. The
+default is Realistic: the ASK when buying, the BID when selling. Nothing fills
+at the mark price, and spreads on this chain are wide.
 """
 
 from __future__ import annotations
-
-import math
 
 import pandas as pd
 import streamlit as st
@@ -32,7 +30,7 @@ from mmc_core import ui_common as ui
 
 ui.page_setup(
     "Delta Filter",
-    "Delta band se strike chuniye · live bid/ask · fees aur spread ke baad",
+    "Pick strikes by delta band · live bid/ask · net of fees and spread",
     icon="📐",
 )
 
@@ -42,8 +40,9 @@ if products is None:
 
 settings = ui.render_global_sidebar(products)
 
-# Delta control is page ka main control hai, isliye page par hai, sidebar mein
-# nahi — aur sidebar wala band off kar diya taaki do jagah ek hi filter na ho.
+# The delta control is this page's primary control, so it lives on the page
+# rather than the sidebar - and the sidebar's band is switched off so the same
+# filter does not appear twice.
 liq = ui.render_liquidity_controls(prefix="dband", include_delta=False)
 
 df, context = ui.load_enriched_chain(products, settings)
@@ -59,26 +58,27 @@ cv = context["contract_value"]
 # Delta band control
 # --------------------------------------------------------------------------
 
-st.markdown(theme.section("Kaunsa delta chahiye", "band absolute |Δ| par lagta hai"), unsafe_allow_html=True)
+st.markdown(
+    theme.section("Which delta do you want", "the band applies to absolute |Δ|"),
+            unsafe_allow_html=True)
 
-# Quick-picks pehle chalne chahiye: ye slider ki value session_state mein set
-# karte hain, aur Streamlit widget ko uske banne ke BAAD set karna allowed
-# nahi hai.
+# The quick-picks must run first: they set the slider's value in session_state,
+# and Streamlit does not allow setting a widget's value AFTER it is created.
 PRESETS = {
     "Deep OTM · 5–15Δ": (5, 15),
     "Classic short · 15–25Δ": (15, 25),
     "Aggressive · 25–40Δ": (25, 40),
     "ATM · 40–60Δ": (40, 60),
     "Directional · 60–85Δ": (60, 85),
-    "Sab dikhao · 0–100Δ": (0, 100),
+    "Show all · 0–100Δ": (0, 100),
 }
 
 if "delta_band_main" not in st.session_state:
     st.session_state["delta_band_main"] = (15, 25)
 
-st.caption("Jaldi ke liye ek preset dabaiye, ya neeche slider se apni range banaiye.")
+st.caption("Use a preset for speed, or set your own range with the slider below.")
 cols = st.columns(len(PRESETS))
-for col, (label, rng) in zip(cols, PRESETS.items()):
+for col, (label, rng) in zip(cols, PRESETS.items(), strict=True):
     with col:
         if st.button(label, width="stretch", key=f"preset_{rng[0]}_{rng[1]}"):
             st.session_state["delta_band_main"] = rng
@@ -86,49 +86,50 @@ for col, (label, rng) in zip(cols, PRESETS.items()):
 
 band = st.slider(
     "Delta band  (|Δ| × 100)", 0, 100, key="delta_band_main",
-    help="Absolute delta. 25 maangne par 0.25 call aur −0.25 put dono aayenge.",
+    help="Absolute delta. Asking for 25 returns both the 0.25 call and the "
+         "-0.25 put.",
 )
 
 liq["delta_band"] = (float(band[0]), float(band[1]))
 
-# Band is page par sidebar ke baad set hota hai, to URL dobara sync kijiye.
+# The band is set after the sidebar on this page, so re-sync the URL.
 ui.sync_url()
 
 filtered = ui.apply_liquidity_filter(df, **liq)
 
 # --------------------------------------------------------------------------
-# Kya mila
+# What matched
 # --------------------------------------------------------------------------
 
 in_band_before_liquidity = int(ui.delta_band_mask(df, liq["delta_band"]).sum())
 dropped_by_liquidity = in_band_before_liquidity - len(filtered)
 
 st.markdown(theme.stat_row([
-    theme.stat("Band mein contracts", f"{len(filtered)}",
+    theme.stat("Contracts in band", f"{len(filtered)}",
                sub=f"{band[0]}Δ – {band[1]}Δ", accent=True),
-    theme.stat("Liquidity ne hataye", f"{dropped_by_liquidity}",
-               sub="band mein the, tradable nahi",
+    theme.stat("Removed by liquidity", f"{dropped_by_liquidity}",
+               sub="in band, but not tradable",
                tone="down" if dropped_by_liquidity > len(filtered) else ""),
     theme.stat("Price basis", settings["price_mode"].split(" (")[0],
                sub=f"1 lot = {cv:g} {settings['underlying']}"),
     theme.stat("Snapshot", api.fmt_ist(context["now"]).replace(" IST", ""),
-               sub=f"har {settings['refresh_seconds']}s"),
+               sub=f"every {settings['refresh_seconds']}s"),
 ]), unsafe_allow_html=True)
 
 if filtered.empty:
     if in_band_before_liquidity == 0:
         st.markdown(theme.empty_state(
-            "🎯", f"{band[0]}Δ – {band[1]}Δ ka koi contract hai hi nahi",
-            "Band ko chauda kijiye, ya doosri expiry chunein. Near-expiry par "
-            "delta aksar 0 se seedha 100 par kood jaata hai aur beech ki "
-            "values milti hi nahi — neeche wala chart ye dikha dega."
+            "🎯", f"No contract exists between {band[0]}Δ and {band[1]}Δ",
+            "Widen the band, or pick a different expiry. Near expiry, delta "
+            "often jumps straight from 0 to 100 with nothing in between - the "
+            "chart below shows this."
         ), unsafe_allow_html=True)
     else:
         st.markdown(theme.empty_state(
-            "💧", f"Band mein {in_band_before_liquidity} the, sab filter mein nikal gaye",
-            "Delta to sahi tha, liquidity nahi. Sidebar mein spread limit "
-            "badhaiye ya two-sided ki shart hataiye — par yaad rahe, wo "
-            "contracts practically tradable nahi hain."
+            "💧", f"{in_band_before_liquidity} were in band, all removed by the filter",
+            "The delta was right; the liquidity was not. Raise the spread limit "
+            "in the sidebar or drop the two-sided requirement - but remember "
+            "those contracts are not practically tradable."
         ), unsafe_allow_html=True)
     ui.render_diagnostics(context, df, settings)
     ui.maybe_auto_refresh(settings)
@@ -138,7 +139,9 @@ if filtered.empty:
 # Live rates table
 # --------------------------------------------------------------------------
 
-st.markdown(theme.section("Live rates", "Buy @ / Sell @ = sidebar ka price basis"), unsafe_allow_html=True)
+st.markdown(
+    theme.section("Live rates", "Buy @ / Sell @ follow the sidebar price basis"),
+            unsafe_allow_html=True)
 
 usdinr = settings["usdinr"]
 work = filtered.copy()
@@ -180,30 +183,30 @@ st.dataframe(
 st.caption(
     f"1 lot = {cv:g} {settings['underlying']} · ₹ conversion @ {usdinr:.2f} · "
     f"Price basis: **{settings['price_mode']}** · "
-    "**Net θ %/day** = ek din ka decay minus ek round-trip ka fee+spread. "
-    "Yahi wo number hai jo batata hai ki premium bechna faayde ka hai ya nahi."
+    "**Net θ %/day** is one day's decay minus one round trip of fees and "
+    "spread. That is the number that decides whether selling premium pays."
 )
 
 neg = tbl[tbl["Net θ %/day"] < 0]
 if not neg.empty:
     st.error(
-        f"⚠️ **{len(neg)} contracts par net theta negative hai.** Ek din ka decay "
-        "round-trip cost se kam hai — in par premium bechna pehle din se hi "
-        "ghaata hai, chahe delta band bilkul aapki pasand ka ho."
+        f"⚠️ **Net theta is negative on {len(neg)} contracts.** One day's decay "
+        "is smaller than the round-trip cost, so selling premium on them loses "
+        "money from day one - however well the delta band suits you."
     )
 
 stale = work[work["is_stale"].fillna(False)]
 if not stale.empty:
-    st.warning(f"⏱️ **{len(stale)}** contracts ki quote 2 minute se purani hai. "
-               "Unke 'live' rate abhi live nahi hain.")
+    st.warning(f"⏱️ **{len(stale)}** contracts have quotes older than 2 minutes. "
+               "Their 'live' rates are not currently live.")
 
 # --------------------------------------------------------------------------
-# Band chain par kahan baitha hai
+# Where the band sits on the chain
 # --------------------------------------------------------------------------
 
-st.markdown(theme.section("Band chain par kahan hai"), unsafe_allow_html=True)
-st.caption("Delta ek abstract number hai — ye chart batata hai ki aapki range "
-           "spot se kitni door padti hai, aur wahan contracts hain bhi ya nahi.")
+st.markdown(theme.section("Where the band sits on the chain"), unsafe_allow_html=True)
+st.caption("Delta is an abstract number - this chart shows how far from spot "
+           "your range actually lands, and whether contracts exist there.")
 
 valid = df[df["delta"].notna()].copy()
 valid["abs_delta_pct"] = valid["delta"].abs() * 100.0
@@ -218,19 +221,19 @@ st.plotly_chart(
 )
 
 # --------------------------------------------------------------------------
-# Har side ka closest strike
+# Closest strike on each side
 # --------------------------------------------------------------------------
 
 target = (band[0] + band[1]) / 2.0
-st.markdown(theme.section(f"{target:.0f}Δ ke sabse kareeb",
-                          "band ka madhya"), unsafe_allow_html=True)
+st.markdown(theme.section(f"Closest to {target:.0f}Δ",
+                          "the middle of your band"), unsafe_allow_html=True)
 
 pick_cols = st.columns(2)
 for col, is_call, name in ((pick_cols[0], True, "CALL"), (pick_cols[1], False, "PUT")):
     side = work[work["is_call"] == is_call]
     with col:
         if side.empty:
-            st.info(f"Band mein koi {name} nahi.")
+            st.info(f"No {name} in the band.")
             continue
         best = side.iloc[(side["abs_delta_pct"] - target).abs().argsort()[:1]].iloc[0]
         st.markdown(f"**{name} {best['strike']:,.0f}**")
@@ -253,12 +256,11 @@ st.download_button(
 )
 
 st.info(
-    "🧠 **Delta ko probability samajhne ki galti mat kijiye.** 25Δ ka matlab "
-    "*lagbhag* 25% chance hai ki option ITM expire hoga — ye ek approximation "
-    "hai, guarantee nahi, aur skew wale chain par ye aur bhi dheeli padti hai. "
-    "Aur jitna kam delta, utna kam premium — lekin round-trip cost premium ke "
-    "percent mein utna hi bada. Isliye **Net θ %/day** column hi asli faisla "
-    "karne wala number hai, delta nahi."
+    "🧠 **Do not mistake delta for probability.** 25Δ means *roughly* a 25% "
+    "chance of expiring in the money - an approximation, not a guarantee, and a "
+    "looser one on a skewed chain. And the lower the delta, the smaller the "
+    "premium, while the round-trip cost grows as a percentage of it. That is "
+    "why the **Net θ %/day** column, not delta, is the deciding number."
 )
 
 ui.render_diagnostics(context, df, settings)

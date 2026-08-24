@@ -1,44 +1,44 @@
 """
-MMC Delta Scanner — Volatility Index (VIX-style)
+MMC Delta Scanner - Volatility Index (VIX-style)
 ================================================
-Poore market ki volatility ka ek number — waise hi jaise India VIX ya CBOE VIX.
+A single number for the whole market's volatility - the same idea as India VIX
+or CBOE VIX.
 
 WHY THIS IS NOT "ATM IV"
 ------------------------
-ATM IV ek strike ka number hai. Agar wo ek strike stale ho, ya skew tedhi ho,
-to wo poore market ko galat represent karta hai. VIX poori OTM chain ko weight
-karta hai — har strike apna hissa daalta hai, aur wings ka bhi. Isi liye wo
-"market kitna dara hua hai" ka behtar jawab hai.
+ATM IV is one strike's number. If that strike is stale, or the skew is steep,
+it misrepresents the market. The VIX method weights the entire OTM chain -
+every strike contributes, wings included. That is why it is a better answer to
+"how frightened is the market".
 
-METHOD — CBOE ki model-free variance formula
---------------------------------------------
-Kisi ek expiry ke liye:
+METHOD - CBOE's model-free variance formula
+-------------------------------------------
+For a single expiry:
 
     sigma^2 = (2/T) * SUM_i [ dK_i / K_i^2 * e^(rT) * Q(K_i) ]  -  (1/T) * (F/K0 - 1)^2
 
-    T    = time to expiry, years
-    F    = forward level = K* + e^(rT) * (C(K*) - P(K*)), jahan K* wo strike hai
-           jahan |C - P| sabse chhota hai
-    K0   = F se neeche (ya barabar) ka pehla strike
-    Q(K) = us strike ke OTM option ka bid-ask midpoint
-           (K < K0 -> put, K > K0 -> call, K = K0 -> dono ka average)
+    T    = time to expiry, in years
+    F    = forward level = K* + e^(rT) * (C(K*) - P(K*)), where K* is the strike
+           at which |C - P| is smallest
+    K0   = the first strike at or below F
+    Q(K) = the bid-ask midpoint of that strike's OTM option
+           (K < K0 -> put, K > K0 -> call, K = K0 -> the average of both)
     dK_i = (K_{i+1} - K_{i-1}) / 2
 
-Ismein koi volatility model nahi hai — na Black-Scholes, na koi smile fit.
-Sirf payoff structure aur quoted prices. Isi liye ye number bharosemand hai.
+There is no volatility model in this - no Black-Scholes, no smile fit. Only the
+payoff structure and quoted prices. That is what makes the number trustworthy.
 
-Phir do expiries ke beech interpolate karke exactly 30 din nikaala jaata hai,
-taaki har roz ka number ek doosre se comparable rahe. Bina constant maturity ke
-"aaj VIX 60 hai" ka koi matlab nahi banta, kyunki kal expiry ek din paas aa
-chuki hogi.
+Two expiries are then interpolated to exactly 30 days, so each day's number is
+comparable with the next. Without constant maturity, "the index is 60 today"
+means nothing, because tomorrow that expiry will be a day closer.
 
 ZERO-BID RULE
 -------------
-CBOE zero-bid options ko chhod deta hai, aur K0 se bahar ki taraf chalte hue
-DO lagataar zero-bid strikes milne par us taraf ka summation rok deta hai.
-Ye niyam is formula ka sabse zaroori hissa hai: 1/K^2 weight deep wings par
-chhota hota hai, lekin ek dead strike ka junk quote phir bhi variance ko
-uchaal sakta hai. Delta India ki chain par wings aksar dead hi hoti hain.
+CBOE excludes zero-bid options, and stops a side's summation after TWO
+consecutive zero-bid strikes walking outward from K0. This rule is the most
+important part of the formula: the 1/K^2 weight is small in the deep wings, but
+a junk quote on a dead strike can still inflate the variance. On Delta India's
+chain the wings are frequently dead.
 """
 
 from __future__ import annotations
@@ -50,28 +50,27 @@ SECONDS_PER_DAY = 24.0 * 60.0 * 60.0
 
 TARGET_DAYS = 30.0
 
-# Isse kam strikes par discrete sum poori distribution ko represent nahi karta
-# aur number bharosemand nahi rehta.
+# Below this the discrete sum does not represent the distribution and the
+# number stops being trustworthy.
 MIN_STRIKES = 3
 
-# Forward ke around itni strike coverage chahiye, warna number chup-chaap KAM
-# aata hai. Formula sahi hone par bhi tang chain integral ka tail kaat deti hai,
-# aur ye bias maturity ke saath badhti hai. Ek 55% vol chain par maapa gaya:
+# The strike coverage needed around the forward; below it the number comes out
+# QUIETLY LOW. Even with a correct formula, a narrow chain truncates the tail of
+# the integral, and that bias grows with maturity. Measured on a 55% vol chain:
 #
-#     coverage   1-din   7-din   30-din   90-din
+#     coverage   1-day   7-day   30-day   90-day
 #     +-15%       57.2    54.9     50.4     43.5
 #     +-25%       57.2    55.3     54.2     50.4
 #     +-50%       57.2    55.3     55.1     54.5
 #     wide        57.2    55.3     55.1     55.0
 #
-# 30 din par +-25% kaafi hai (1.5% kam), +-15% nahi (8% kam). Isliye index
-# hamesha apni coverage ke saath report hota hai — bias ko chupane se behtar
-# hai use dikha dena.
+# At 30 days +-25% is enough (1.5% low); +-15% is not (8% low). So the index
+# always reports its coverage alongside - showing the bias beats hiding it.
 MIN_COVERAGE_PCT = 25.0
 
 
 def _mid(quote: dict) -> float:
-    """Bid-ask midpoint, ya NaN agar book two-sided nahi hai."""
+    """The bid-ask midpoint, or NaN if the book is not two-sided."""
     bid = quote.get("bid", float("nan"))
     ask = quote.get("ask", float("nan"))
     if any(v is None or (isinstance(v, float) and math.isnan(v))
@@ -91,12 +90,11 @@ def _has_bid(quote: dict) -> bool:
 
 def forward_level(calls: dict, puts: dict, t_years: float,
                   r: float = 0.0) -> dict:
-    """Forward index level F aur uske neeche ka pehla strike K0.
+    """The forward index level F and the first strike at or below it, K0.
 
-    F wahan se nikaalte hain jahan call aur put ki keemat sabse kareeb hai —
-    kyunki wahi wo strike hai jahan put-call parity sabse kam noise ke saath
-    padhi ja sakti hai. Spot use karne se ye galat ho jaata: options ka
-    reference forward hota hai, spot nahi.
+    F is derived where the call and put prices are closest, because that is the
+    strike at which put-call parity can be read with the least noise. Using
+    spot would be wrong: an option's reference is the forward, not spot.
     """
     shared = sorted(k for k in set(calls) & set(puts)
                     if not math.isnan(_mid(calls[k]))
@@ -105,7 +103,8 @@ def forward_level(calls: dict, puts: dict, t_years: float,
         return {"forward": float("nan"), "k0": float("nan"), "k_star": float("nan")}
 
     k_star = min(shared, key=lambda k: abs(_mid(calls[k]) - _mid(puts[k])))
-    forward = k_star + math.exp(r * t_years) * (_mid(calls[k_star]) - _mid(puts[k_star]))
+    parity_gap = _mid(calls[k_star]) - _mid(puts[k_star])
+    forward = k_star + math.exp(r * t_years) * parity_gap
 
     every_strike = sorted(set(calls) | set(puts))
     at_or_below = [k for k in every_strike if k <= forward]
@@ -115,10 +114,11 @@ def forward_level(calls: dict, puts: dict, t_years: float,
 
 
 def _walk_with_zero_bid_stop(strikes, quotes, ascending: bool) -> list:
-    """K0 se bahar chalte hue strikes chuniye, do lagataar zero-bid par ruk kar.
+    """Select strikes walking outward from K0, stopping at two consecutive
+    zero bids.
 
-    Ek akela zero-bid strike sirf skip hota hai; do lagataar ka matlab hai ki
-    book us taraf khatam ho chuki hai, aur usse aage ka har quote sirf shor hai.
+    A single zero-bid strike is simply skipped; two in a row mean the book has
+    ended on that side, and every quote beyond it is noise.
     """
     ordered = sorted(strikes) if ascending else sorted(strikes, reverse=True)
     picked = []
@@ -139,26 +139,26 @@ def _walk_with_zero_bid_stop(strikes, quotes, ascending: bool) -> list:
 
 def expiry_variance(calls: dict, puts: dict, t_years: float,
                     r: float = 0.0) -> dict:
-    """Ek expiry ka model-free sigma^2.
+    """Model-free sigma^2 for one expiry.
 
     calls / puts : {strike: {"bid": float, "ask": float}}
     Returns {"sigma2", "forward", "k0", "strikes_used", "reason"}.
-    reason None hone ka matlab hai number bharosemand hai.
+    A reason of None means the number is trustworthy.
     """
     fail = {"sigma2": float("nan"), "forward": float("nan"), "k0": float("nan"),
             "strikes_used": 0}
 
     if t_years is None or t_years <= 0:
-        return {**fail, "reason": "expiry nikal chuki hai"}
+        return {**fail, "reason": "this expiry has already passed"}
     if not calls or not puts:
-        return {**fail, "reason": "call ya put side khaali hai"}
+        return {**fail, "reason": "the call or put side is empty"}
 
     fwd = forward_level(calls, puts, t_years, r)
     forward, k0 = fwd["forward"], fwd["k0"]
     if math.isnan(forward) or math.isnan(k0):
-        return {**fail, "reason": "forward resolve nahi hua (two-sided book nahi mila)"}
+        return {**fail, "reason": "could not resolve the forward (no two-sided book)"}
 
-    # K0 se neeche puts, upar calls — dono taraf zero-bid rule ke saath.
+    # Puts below K0, calls above - the zero-bid rule applies on both sides.
     put_strikes = _walk_with_zero_bid_stop(
         [k for k in puts if k < k0], puts, ascending=False)
     call_strikes = _walk_with_zero_bid_stop(
@@ -170,7 +170,7 @@ def expiry_variance(calls: dict, puts: dict, t_years: float,
     for k in call_strikes:
         contributions[k] = _mid(calls[k])
 
-    # K0 par dono OTM ke sabse kareeb hain, isliye unka average.
+    # At K0 both are closest to at-the-money, so take their average.
     at_k0 = [_mid(side[k0]) for side in (calls, puts)
              if k0 in side and not math.isnan(_mid(side[k0]))]
     if at_k0:
@@ -179,8 +179,8 @@ def expiry_variance(calls: dict, puts: dict, t_years: float,
     strikes = sorted(contributions)
     if len(strikes) < MIN_STRIKES:
         return {**fail, "forward": forward, "k0": k0,
-                "reason": f"sirf {len(strikes)} usable strikes mile "
-                          f"(kam se kam {MIN_STRIKES} chahiye)"}
+                "reason": f"only {len(strikes)} usable strikes "
+                          f"(at least {MIN_STRIKES} are needed)"}
 
     discount = math.exp(r * t_years)
     total = 0.0
@@ -197,8 +197,8 @@ def expiry_variance(calls: dict, puts: dict, t_years: float,
 
     if sigma2 <= 0 or math.isnan(sigma2):
         return {**fail, "forward": forward, "k0": k0,
-                "reason": "variance negative aa gaya — chain ke quotes "
-                          "aapas mein inconsistent hain"}
+                "reason": "variance came out negative - the chain's quotes "
+                          "are inconsistent with each other"}
 
     return {"sigma2": sigma2, "forward": forward, "k0": k0,
             "strikes_used": len(strikes),
@@ -208,15 +208,15 @@ def expiry_variance(calls: dict, puts: dict, t_years: float,
 
 
 def coverage(k_min: float, k_max: float, forward: float) -> dict:
-    """Summation forward ke aas-paas kitni door tak gaya.
+    """How far the summation reached on either side of the forward.
 
     Returns {"low_pct", "high_pct", "narrow_side"}.
-    low_pct / high_pct hamesha positive distances hain, percent mein.
-    narrow_side None hai jab dono taraf kaafi coverage hai.
+    low_pct / high_pct are always positive distances, in percent.
+    narrow_side is None when both sides have enough coverage.
 
-    Ye number index ke bagal mein dikhna chahiye. Ek tang chain par index kam
-    aata hai, aur regime gate ke liye ye seedha khatarnak hai: kam VIX ka
-    matlab hoga "vol saste hain" jabki asal mein chain hi chhoti thi.
+    This belongs beside the index. A narrow chain makes the index read low, and
+    for a regime gate that is directly dangerous: a low reading gets taken as
+    "volatility is cheap" when the real cause was a small chain.
     """
     if any(v is None or (isinstance(v, float) and math.isnan(v))
            for v in (k_min, k_max, forward)) or forward <= 0:
@@ -240,13 +240,13 @@ def coverage(k_min: float, k_max: float, forward: float) -> dict:
 
 def interpolate_to_target(near: dict, far: dict,
                           target_days: float = TARGET_DAYS) -> float:
-    """Do expiries ki variance ko constant maturity par le aaiye.
+    """Bring two expiries' variance to a constant maturity.
 
     near / far : {"t_years", "sigma2"}
 
-    Interpolation TOTAL VARIANCE (T * sigma^2) par hoti hai, sigma par nahi.
-    Variance time ke saath add hoti hai, volatility nahi — sigma ko seedha
-    interpolate karna ek classic aur chup-chaap galat karne wala shortcut hai.
+    The interpolation runs on TOTAL VARIANCE (T * sigma^2), not on sigma.
+    Variance adds across time; volatility does not - interpolating sigma
+    directly is a classic and quietly wrong shortcut.
     """
     t1, t2 = float(near["t_years"]), float(far["t_years"])
     v1, v2 = float(near["sigma2"]), float(far["sigma2"])
@@ -266,22 +266,21 @@ def interpolate_to_target(near: dict, far: dict,
 
 
 def volatility_index(expiries: list, target_days: float = TARGET_DAYS) -> dict:
-    """Poora index — expiries ki list se ek number.
+    """The full index - one number from a list of expiries.
 
-    expiries : [{"t_years", "sigma2", "label"}] — sirf wahi jinka sigma2 valid ho
+    expiries : [{"t_years", "sigma2", "label"}] - only those with a valid sigma2
 
     Returns:
-        value           — index, percent mein (e.g. 62.4)
-        constant_maturity — True tabhi jab do expiries ne 30 din ko bracket kiya
-        basis_days      — number kis maturity ka hai
-        near / far      — kaunsi expiries use hui
-        note            — agar constant maturity nahi mili to wajah
+        value             - the index, in percent (e.g. 62.4)
+        constant_maturity - True only when two expiries bracket 30 days
+        basis_days        - the maturity the number actually represents
+        near / far        - which expiries were used
+        note              - why constant maturity was not achieved, if it wasn't
 
-    Jab 30 din bracket nahi hota to hum EXTRAPOLATE nahi karte. Sirf ek taraf
-    ki expiry se 30-din ki vol banaana ek aisa number deta hai jo confident
-    dikhta hai par hai nahi — aur ye page us number par trade karne ke liye hai.
-    Us case mein jo maturity sach mein available hai wahi report hoti hai,
-    saaf label ke saath.
+    When 30 days is not bracketed we do NOT extrapolate. Building a 30-day
+    volatility from expiries on one side only produces a number that looks
+    confident but is not - and this page exists to be traded from. In that case
+    the maturity that genuinely exists is reported, clearly labelled.
     """
     usable = [e for e in expiries
               if e.get("sigma2") is not None
@@ -291,7 +290,7 @@ def volatility_index(expiries: list, target_days: float = TARGET_DAYS) -> dict:
     if not usable:
         return {"value": float("nan"), "constant_maturity": False,
                 "basis_days": float("nan"), "near": None, "far": None,
-                "note": "kisi bhi expiry se valid variance nahi nikla"}
+                "note": "no expiry produced a valid variance"}
 
     usable.sort(key=lambda e: e["t_years"])
     t_target = target_days / 365.0
@@ -308,24 +307,24 @@ def volatility_index(expiries: list, target_days: float = TARGET_DAYS) -> dict:
             "near": near, "far": far, "note": None,
         }
 
-    # Bracket nahi bana — jo hai wahi report kijiye, extrapolate mat kijiye.
+    # No bracket - report what exists rather than extrapolating.
     pick = min(usable, key=lambda e: abs(e["t_years"] - t_target))
     days = pick["t_years"] * 365.0
-    side = "sab expiries 30 din se kam hain" if not above \
-        else "sab expiries 30 din se zyada hain"
+    side = ("every expiry is shorter than 30 days" if not above
+            else "every expiry is longer than 30 days")
     return {
         "value": math.sqrt(pick["sigma2"]) * 100.0,
         "constant_maturity": False,
         "basis_days": days,
         "near": pick, "far": None,
-        "note": (f"{side}, isliye ye {days:.1f}-din ki vol hai, "
-                 f"{target_days:.0f}-din ki nahi. Doosre dinon ke number se "
-                 "seedha compare mat kijiye."),
+        "note": (f"{side}, so this is {days:.1f}-day volatility, not "
+                 f"{target_days:.0f}-day. Do not compare it directly with "
+                 "another day's reading."),
     }
 
 
 def regime_status(value: float, band: tuple) -> dict:
-    """Current index band ke andar hai ya nahi.
+    """Whether the current index sits inside the band.
 
     Returns {"in_regime": bool, "position": "below"|"inside"|"above"|"unknown",
              "distance": float}
