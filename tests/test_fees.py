@@ -1,8 +1,9 @@
-"""Delta India fee model ke tests.
+"""Tests for the Delta India fee model.
 
-Yahan ka central claim: fee NOTIONAL par lagti hai, premium par nahi — lekin
-premium ka ek cap hai. Ye rishta ulta ho jaaye to scanner dead OTM strikes ko
-"best theta yield" bata dega, jo exactly wo bug hai jiske liye ye module bana.
+The central claim here: fees are charged on NOTIONAL, not on premium - but
+capped at a percentage of the premium. Invert that relationship and the scanner
+will rank dead OTM strikes as the "best theta yield", which is precisely the bug
+this module exists to prevent.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ CFG = fx.FeeConfig()    # maker 0.01%, taker 0.03%, cap 3.5%, GST 18%
 # ------------------------------------------------------------- single leg
 
 def test_notional_rate_binds_on_expensive_atm_option():
-    """ATM par premium itna bada hai ki cap nahi lagta — notional rate chalta hai."""
+    """At the money the premium is large enough that the cap never binds."""
     fee = fx.leg_fee_usd(ATM_PREMIUM, INDEX, 1.0, CV, CFG, is_maker=False)
     expected = (1.0 * CV * INDEX) * CFG.taker_rate * (1 + CFG.gst)
     assert fee == pytest.approx(expected)
@@ -34,12 +35,13 @@ def test_notional_rate_binds_on_expensive_atm_option():
 
 
 def test_premium_cap_binds_on_cheap_otm_option():
-    """Sasti OTM strike par cap hi asli fee hai — yahi unhe tradable banata hai."""
+    """On a cheap OTM strike the cap is the real fee - it is what makes them
+    tradable at all."""
     fee = fx.leg_fee_usd(OTM_PREMIUM, INDEX, 1.0, CV, CFG, is_maker=False)
     expected = (1.0 * CV * OTM_PREMIUM) * CFG.premium_cap_pct * (1 + CFG.gst)
     assert fee == pytest.approx(expected)
     assert fx.cap_binds(OTM_PREMIUM, INDEX, CV, CFG, is_maker=False)
-    # Bina cap ke fee premium se bhi zyada hoti.
+    # Without the cap, the fee would exceed the premium itself.
     assert fee < CV * OTM_PREMIUM
 
 
@@ -93,7 +95,7 @@ def test_round_trip_uses_entry_and_exit_maker_flags_separately():
 
 
 def test_decayed_exit_price_lowers_the_exit_fee_when_cap_binds():
-    """Decay analysis mein honest exit price kam hota hai — cap bhi kam lagta hai."""
+    """In a decay analysis the honest exit price is lower, so the cap binds lower."""
     full = fx.round_trip_fee_usd(OTM_PREMIUM, INDEX, 1.0, CV, CFG)
     decayed = fx.round_trip_fee_usd(OTM_PREMIUM, INDEX, 1.0, CV, CFG,
                                     exit_price=OTM_PREMIUM * 0.25)
@@ -101,11 +103,12 @@ def test_decayed_exit_price_lowers_the_exit_fee_when_cap_binds():
 
 
 def test_round_trip_cost_hurts_cheap_otm_far_more_than_atm():
-    """README ka core claim: sasti OTM par round-trip cost premium ka bada hissa."""
+    """The README's core claim: on cheap OTM the round trip eats much of the
+    premium."""
     atm_pct = fx.fee_as_pct_of_premium(ATM_PREMIUM, INDEX, CV, CFG)
     otm_pct = fx.fee_as_pct_of_premium(OTM_PREMIUM, INDEX, CV, CFG)
     assert otm_pct > atm_pct * 2
-    # Cap dono taraf binds karta hai -> 2 x cap x (1 + GST)
+    # The cap binds on both sides -> 2 x cap x (1 + GST)
     assert otm_pct == pytest.approx(
         2 * CFG.premium_cap_pct * (1 + CFG.gst) * 100.0)
 
@@ -138,7 +141,7 @@ def test_mark_basis_ignores_the_book():
     (None, None),
 ])
 def test_missing_book_falls_back_to_mark(bid, ask):
-    """One-sided strike par ask/bid basis ka koi matlab nahi — mark hi bachta hai."""
+    """On a one-sided strike an ask/bid basis is meaningless - only mark remains."""
     assert fx.execution_price(100.0, bid, ask, is_buy=True) == 100.0
 
 

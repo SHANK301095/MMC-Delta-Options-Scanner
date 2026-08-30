@@ -1,39 +1,53 @@
 """
-MMC Delta Scanner — Chart Layer
+MMC Delta Scanner - Chart Layer
 ===============================
-Saare charts yahan se banate hain, taaki poore app mein ek hi visual bhasha
-rahe aur rangon ka matlab kabhi na badle.
+Every chart is built here, so the whole app speaks one visual language and a
+colour never changes meaning.
 
-Rang, spacing aur ink `theme.py` se aate hain — yahan koi hard-coded hex nahi
-hai. Ek jagah token badliye, poora app badal jaata hai.
+Colour, spacing and ink come from `theme.py` - there is no hard-coded hex in
+this file. Change a token in one place and the whole app follows.
 
-DO NIYAM JO YAHAN TODE NAHI JAATE
----------------------------------
-1. **Ek chart, ek y-axis.** Do alag scales ek plot par daalna sabse aam aur
-   sabse mehnga chart bug hai: dono scales ka alignment manmaana hota hai,
-   isliye chart ek aisa rishta dikha deta hai jo data mein hai hi nahi. Do
-   alag units chahiye to do chart banaiye.
+TWO RULES THAT ARE NEVER BROKEN HERE
+------------------------------------
+1. **One chart, one y-axis.** Putting two different scales on one plot is the
+   most common and most expensive charting bug: the alignment between the two
+   scales is arbitrary, so the chart invents a relationship the data does not
+   contain. If you need two units, draw two charts.
 
-2. **Calls aur puts kabhi sirf rang se alag nahi hote.** Green/red market ki
-   bhasha hai aur usse badla nahi ja sakta — lekin theek yahi jodi protanopia
-   mein sabse kam alag dikhti hai. Isliye jahan dono ek chart mein hain, wahan
-   ek doosra channel bhi hota hai: marker ka shape (circle vs diamond), line
-   ka dash, ya grouped bars ki jagah. Legend hamesha maujood rehta hai.
+2. **Calls and puts are never separated by colour alone.** Green and red are
+   the market's own language and cannot be changed - but that is precisely the
+   pair that separates worst under protanopia. So wherever both appear in one
+   chart there is a second channel: marker shape (circle vs diamond), line
+   dash, or the positional separation of grouped bars. A legend is always
+   present.
 
-Spot / ATM / threshold lines rang nahi lete — wo recessive ink hairlines hain.
-Reference line ko series se muqabla nahi karna chahiye; uska kaam sirf jagah
-batana hai.
+Spot, ATM and threshold lines take no hue - they are recessive ink hairlines. A
+reference line should not compete with the series; its only job is to mark a
+position.
 """
 
 from __future__ import annotations
 
 import plotly.graph_objects as go
 
-from .theme import (ACCENT_DOWN, ACCENT_UP, AXIS, FILL_BAND, FILL_DOWN,
-                    FILL_SERIES_1, FILL_UP, GRID, INK_1, INK_2, INK_3,
-                    SERIES_1, SERIES_2, STATUS_GOOD, STATUS_WARN)
+from .theme import (
+    ACCENT_DOWN,
+    ACCENT_UP,
+    AXIS,
+    FILL_BAND,
+    FILL_DOWN,
+    FILL_UP,
+    GRID,
+    INK_1,
+    INK_2,
+    INK_3,
+    SERIES_1,
+    SERIES_2,
+    STATUS_GOOD,
+    STATUS_WARN,
+)
 
-# Backwards-compatible naam — purane code ne inhe import kiya tha.
+# Backwards-compatible names - older code imported these.
 C_CALL = ACCENT_UP
 C_PUT = ACCENT_DOWN
 C_SPOT = INK_2
@@ -45,8 +59,8 @@ C_ZERO = AXIS
 PROFIT_FILL = FILL_UP
 LOSS_FILL = FILL_DOWN
 
-# Marker aur dash ka wo doosra channel jo call/put ko rang ke bina bhi alag
-# rakhta hai. Ek hi jagah tay hai taaki har chart mein same rahe.
+# The marker and dash channel that keeps calls and puts distinct without
+# relying on colour. Defined once so every chart stays consistent.
 CALL_MARKER = "circle"
 PUT_MARKER = "diamond"
 CALL_DASH = "solid"
@@ -62,7 +76,7 @@ _HOVER = dict(
 def base_layout(title: str = "", height: int = 380,
                 x_title: str = "", y_title: str = "",
                 show_legend: bool = True) -> dict:
-    """Shared layout. Background transparent hai taaki card ka surface dikhe."""
+    """Shared layout. The background is transparent so the card surface shows."""
     axis = dict(
         gridcolor=GRID, griddash="solid", gridwidth=1,
         zerolinecolor=AXIS, zerolinewidth=1,
@@ -96,10 +110,10 @@ def apply_layout(fig: go.Figure, **kwargs) -> go.Figure:
 
 
 def add_spot_line(fig: go.Figure, spot: float, label: str = "Spot") -> go.Figure:
-    """Spot par recessive reference hairline.
+    """A recessive reference hairline at spot.
 
-    Ye ek series nahi hai, isliye ise koi categorical hue nahi milta — warna wo
-    asli series se muqabla karti aur ek free colour slot kha jaati.
+    This is not a series, so it gets no categorical hue - otherwise it would
+    compete with the real series and consume a free colour slot.
     """
     fig.add_vline(x=spot, line_width=1, line_dash="dash", line_color=INK_2,
                   annotation_text=f"{label} {spot:,.0f}",
@@ -118,11 +132,11 @@ def add_zero_line(fig: go.Figure) -> go.Figure:
 # --------------------------------------------------------------------------
 
 def oi_profile(strikes, call_oi, put_oi, spot: float) -> go.Figure:
-    """Strike ke hisaab se back-to-back OI bars.
+    """Back-to-back open-interest bars by strike.
 
-    Grouped bars hain, stacked nahi: calls aur puts ki jagah alag hai, aur wahi
-    positional farak legend ke saath milkar rang ke alawa doosra channel banata
-    hai.
+    Grouped rather than stacked: calls and puts occupy separate positions, and
+    that positional difference, together with the legend, is the second channel
+    alongside colour.
     """
     fig = go.Figure()
     fig.add_bar(x=strikes, y=call_oi, name="Call OI",
@@ -133,7 +147,8 @@ def oi_profile(strikes, call_oi, put_oi, spot: float) -> go.Figure:
                 hovertemplate="Strike %{x:,.0f}<br>Put OI %{y:,.0f}<extra></extra>")
     apply_layout(fig, height=320, x_title="Strike",
                  y_title="Open Interest (contracts)")
-    # 2px ka gap fills ke beech - border se marks alag karna anti-pattern hai.
+    # A 2px gap between fills - drawing borders to separate marks is an
+    # anti-pattern.
     fig.update_layout(barmode="group", bargap=0.28, bargroupgap=0.08,
                       hovermode="closest")
     add_spot_line(fig, spot)
@@ -143,10 +158,10 @@ def oi_profile(strikes, call_oi, put_oi, spot: float) -> go.Figure:
 def volatility_smile(call_strikes, call_iv, put_strikes, put_iv,
                      spot: float, blend_strikes=None, blend_iv=None,
                      band: tuple | None = None) -> go.Figure:
-    """IV vs strike, upar OTM-blended curve.
+    """Implied volatility against strike, with the OTM-blended curve on top.
 
-    Blended line wahi hai jo desks quote karte hain: spot ke neeche puts, upar
-    calls — kyunki crypto chain par ITM quotes aksar stale hoti hain.
+    The blended line is what desks actually quote: puts below spot, calls above
+    - because ITM quotes on a crypto chain are usually stale.
     """
     fig = go.Figure()
 
@@ -160,7 +175,8 @@ def volatility_smile(call_strikes, call_iv, put_strikes, put_iv,
 
     fig.add_scatter(x=call_strikes, y=call_iv, name="Call IV", mode="markers",
                     marker=dict(color=ACCENT_UP, size=8, symbol=CALL_MARKER),
-                    hovertemplate="Strike %{x:,.0f}<br>Call IV %{y:.1f}%<extra></extra>")
+                    hovertemplate="Strike %{x:,.0f}<br>"
+                                  "Call IV %{y:.1f}%<extra></extra>")
     fig.add_scatter(x=put_strikes, y=put_iv, name="Put IV", mode="markers",
                     marker=dict(color=ACCENT_DOWN, size=8, symbol=PUT_MARKER),
                     hovertemplate="Strike %{x:,.0f}<br>Put IV %{y:.1f}%<extra></extra>")
@@ -177,9 +193,11 @@ def volatility_smile(call_strikes, call_iv, put_strikes, put_iv,
 
 
 def term_structure(labels, atm_iv, days_left) -> go.Figure:
-    """Expiries ke aar-paar ATM IV. Upar jaati line = contango, neeche =
-    backwardation. Ek hi series hai, isliye legend ki zaroorat nahi — title
-    hi use naam de deta hai."""
+    """ATM implied volatility across expiries.
+
+    An upward slope is contango, downward is backwardation. There is only one
+    series, so no legend is needed - the title names it.
+    """
     fig = go.Figure()
     fig.add_scatter(x=days_left, y=atm_iv, mode="lines+markers",
                     name="ATM IV", line=dict(color=SERIES_1, width=2),
@@ -195,13 +213,13 @@ def term_structure(labels, atm_iv, days_left) -> go.Figure:
 
 
 def decay_curve(hours, premium, cumulative) -> go.Figure:
-    """Premium ghatna aur cumulative burn — EK y-axis par.
+    """Premium remaining and cumulative burn - on ONE y-axis.
 
-    Pehle ye do axes par tha. Wo galat tha, aur sirf cosmetic galti nahi:
-    dono series ek hi unit (₹ per lot) mein hain aur aapas mein judi hain —
-    jo premium gaya wahi burn hua hai. Unhe alag scales par rakhne se do
-    numbers ka rishta manmaana ho jaata tha, aur padhne wala aisa gap ya
-    crossover dekh leta jo data mein tha hi nahi.
+    This once used two axes. That was wrong, and not merely cosmetically: both
+    series are in the same unit (rupees per lot) and are two halves of the same
+    quantity - the premium that left is the burn that happened. Putting them on
+    separate scales made the relationship between the two numbers arbitrary,
+    and let a reader see a gap or a crossover that was not in the data.
     """
     fig = go.Figure()
     fig.add_scatter(x=hours, y=premium, name="Premium bacha", mode="lines",
@@ -216,7 +234,7 @@ def decay_curve(hours, premium, cumulative) -> go.Figure:
 
 
 def burn_bars(hours, step_burn) -> go.Figure:
-    """Har step ka burn. Dahini taraf uthta tail hi theta acceleration hai."""
+    """Burn per step. The rising tail on the right is theta acceleration."""
     fig = go.Figure()
     fig.add_bar(x=hours, y=step_burn, name="Burn per step",
                 marker_color=SERIES_2, marker_line_width=0,
@@ -230,11 +248,11 @@ def burn_bars(hours, step_burn) -> go.Figure:
 def payoff_diagram(spots, payoff_expiry, spot_now: float,
                    payoff_now=None, breakevens=None,
                    label_now: str = "Today (T+0)") -> go.Figure:
-    """Payoff diagram, profit/loss shading aur break-even markers ke saath.
+    """A payoff diagram with profit/loss shading and break-even markers.
 
-    Shading polarity batati hai (upar profit, neeche loss) aur zero line uska
-    reference hai — isliye rang yahan identity nahi, sign uthaa raha hai.
-    Do lines apni alag hue aur dash se alag hoti hain.
+    The shading encodes polarity (profit above, loss below) against the zero
+    line as its reference - so here colour carries sign, not identity. The two
+    curves are separated by their own hue and dash.
     """
     fig = go.Figure()
 
@@ -270,11 +288,11 @@ def payoff_diagram(spots, payoff_expiry, spot_now: float,
 
 
 def spread_heat(strikes, spread_pct, spot: float, limit: float) -> go.Figure:
-    """Har strike ka spread %, filter paas karne ya na karne se ranga hua.
+    """Spread percentage per strike, coloured by whether it passes the filter.
 
-    Yahan rang identity nahi, STATE batata hai (paas / fail) — isliye status
-    palette lagti hai, series palette nahi. Threshold line label ke saath hai
-    taaki encoding rang par akela na tike.
+    Here colour encodes STATE (pass / fail), not identity - so the status
+    palette applies, not the series palette. The threshold line carries a label
+    so the encoding does not rest on colour alone.
     """
     colours = [STATUS_GOOD if (s is not None and s == s and s <= limit)
                else STATUS_WARN for s in spread_pct]
@@ -294,11 +312,11 @@ def spread_heat(strikes, spread_pct, spot: float, limit: float) -> go.Figure:
 
 def delta_profile(call_strikes, call_delta_pct, put_strikes, put_delta_pct,
                   spot: float, band: tuple | None = None) -> go.Figure:
-    """|Δ| × 100 vs strike, chuni hui delta band shaded.
+    """|delta| x 100 against strike, with the selected band shaded.
 
-    Delta ek abstract number hai; ye chart use chain par jagah deta hai — turant
-    dikh jaata hai ki 20-30Δ maangne par aap spot se kitne door ja rahe hain,
-    aur us range mein contracts hain bhi ya nahi.
+    Delta is an abstract number; this chart gives it a position on the chain -
+    it shows at a glance how far from spot a 20-30 delta request actually
+    lands, and whether any contracts exist in that range at all.
     """
     fig = go.Figure()
 
@@ -314,7 +332,8 @@ def delta_profile(call_strikes, call_delta_pct, put_strikes, put_delta_pct,
                     mode="markers+lines",
                     line=dict(color=ACCENT_UP, width=1.5, dash=CALL_DASH),
                     marker=dict(color=ACCENT_UP, size=8, symbol=CALL_MARKER),
-                    hovertemplate="Strike %{x:,.0f}<br>Call |Δ| %{y:.1f}<extra></extra>")
+                    hovertemplate="Strike %{x:,.0f}<br>"
+                                  "Call |Δ| %{y:.1f}<extra></extra>")
     fig.add_scatter(x=put_strikes, y=put_delta_pct, name="Put |Δ|",
                     mode="markers+lines",
                     line=dict(color=ACCENT_DOWN, width=1.5, dash=PUT_DASH),

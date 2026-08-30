@@ -182,7 +182,7 @@ def bs_theta_per_day(S: float, K: float, T: float, sigma: float,
 
 
 # --------------------------------------------------------------------------
-# Realised (repricing) decay - the honest way to answer "kitna theta jalega"
+# Realised (repricing) decay - the honest way to answer "how much theta burns"
 # --------------------------------------------------------------------------
 
 def decay_between(S: float, K: float, sigma: float, is_call: bool,
@@ -473,7 +473,7 @@ def find_breakevens(spots, payoff, tol_frac: float = 1e-4) -> list:
 
 
 def payoff_tail_risk(payoff, edge_frac: float = 0.01) -> dict:
-    """Kya payoff plotted range ke bahar unbounded hai?
+    """Is the payoff unbounded beyond the plotted range?
 
     Returns {"unlimited_profit": bool, "unlimited_loss": bool}.
 
@@ -511,8 +511,8 @@ def payoff_tail_risk(payoff, edge_frac: float = 0.01) -> dict:
     scale = max(abs(y) for y in ys)
     tol = max(1e-9, scale * 1e-9)
 
-    left_trend = ys[0] - ys[step]            # spot ghatne par P&L kis taraf ja raha hai
-    right_trend = ys[-1] - ys[-1 - step]     # spot badhne par P&L kis taraf ja raha hai
+    left_trend = ys[0] - ys[step]            # which way P&L heads as spot falls
+    right_trend = ys[-1] - ys[-1 - step]     # which way P&L heads as spot rises
 
     out["unlimited_profit"] = left_trend > tol or right_trend > tol
     out["unlimited_loss"] = left_trend < -tol or right_trend < -tol

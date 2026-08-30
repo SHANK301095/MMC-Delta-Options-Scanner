@@ -29,11 +29,9 @@ from __future__ import annotations
 
 import math
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 
-from mmc_core import delta_api as api
 from mmc_core import fees as fx
 from mmc_core import theme
 from mmc_core import ui_common as ui
@@ -67,14 +65,14 @@ cfg = settings["fee_cfg"]
 # forces that requirement regardless of the sidebar setting.
 filtered = ui.apply_liquidity_filter(df, **{**liq, "require_two_sided": True})
 
-st.caption("ℹ️ Is page par two-sided book **hamesha** required hai — "
-           "bina bid aur ask ke koi arbitrage check possible hi nahi.")
+st.caption("ℹ️ A two-sided book is **always** required on this page - without "
+           "both a bid and an ask, no arbitrage check is possible.")
 
 if filtered.empty:
     st.markdown(theme.empty_state(
-        "⚖️", "Two-sided book wala koi strike nahi mila",
-        "Arbitrage check bina bid aur ask ke ho hi nahi sakta. "
-        "Spread limit badhaiye ya doosri expiry chunein."
+        "⚖️", "No strike has a two-sided book",
+        "An arbitrage check is impossible without both a bid and an ask. Raise "
+        "the spread limit or pick a different expiry."
     ), unsafe_allow_html=True)
     ui.render_diagnostics(context, df, settings)
     ui.maybe_auto_refresh(settings)
@@ -83,16 +81,17 @@ if filtered.empty:
 min_edge_inr = st.number_input(
     "Minimum edge to report (₹ per lot, net of fees)",
     min_value=0.0, value=1.0, step=0.5,
-    help="Isse chhoti 'edge' noise hai. Zero karke sab dekh sakte hain.",
+    help="Anything smaller than this is noise. Set it to zero to see "
+         "everything.",
 )
-hide_stale = st.checkbox("Stale quotes (>2 min purani) hide karein", value=True)
+hide_stale = st.checkbox("Hide stale quotes (older than 2 min)", value=True)
 
 work = filtered.copy()
 if hide_stale:
     work = work[~work["is_stale"].fillna(False)]
 
 if work.empty:
-    st.warning("Stale filter ke baad kuch nahi bacha.")
+    st.warning("Nothing remains after the stale filter.")
     ui.render_diagnostics(context, df, settings)
     ui.maybe_auto_refresh(settings)
     st.stop()
@@ -113,11 +112,11 @@ def to_inr_lot(usd_per_unit: float) -> float:
 
 
 def oi_of(row) -> float:
-    """Open interest, missing ko 0 maan kar.
+    """Open interest, treating a missing value as zero.
 
-    `float(row["oi_contracts"] or 0)` yahan kaam NAHI karta: NaN Python mein
-    truthy hai, isliye missing OI NaN hi rehti hai aur min()/format dono ko
-    chup-chaap kharab kar deti hai.
+    `float(row["oi_contracts"] or 0)` does NOT work here: NaN is truthy in
+    Python, so a missing OI stays NaN and quietly corrupts both min() and the
+    formatting.
     """
     val = float(row["oi_contracts"])
     return 0.0 if math.isnan(val) else val
@@ -134,8 +133,8 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 with tab1:
     st.markdown("### C − P = S − K·e^(−rT)")
-    st.caption("Synthetic long stock (buy call + sell put) ka cost spot minus "
-               "discounted strike ke barabar hona chahiye. Farak = parity gap.")
+    st.caption("A synthetic long (buy the call, sell the put) should cost spot "
+               "minus the discounted strike. The difference is the parity gap.")
 
     shared = sorted(set(calls.index) & set(puts.index))
     rows = []
@@ -153,14 +152,14 @@ with tab1:
                      + fee_for(float(p["best_bid"]), maker=cfg.entry_is_maker))
         fees_inr = fees_pair * usdinr
 
-        # Synthetic cheap vs spot -> buy synthetic
+        # Synthetic cheap vs spot -> buy the synthetic
         gap_long = theoretical - syn_long_cost
         # Synthetic rich vs spot -> sell synthetic
         gap_short = syn_short_proceeds - theoretical
 
-        best_gap, direction = ((gap_long, "Synthetic sasta (buy synth)")
+        best_gap, direction = ((gap_long, "Synthetic cheap (buy synth)")
                                if gap_long >= gap_short
-                               else (gap_short, "Synthetic mehnga (sell synth)"))
+                               else (gap_short, "Synthetic rich (sell synth)"))
         net_inr = to_inr_lot(best_gap) - fees_inr
 
         rows.append({
@@ -176,7 +175,7 @@ with tab1:
         })
 
     if not rows:
-        st.info("Koi strike aisa nahi mila jahan call aur put dono two-sided hon.")
+        st.info("No strike has both the call and the put quoted two-sided.")
     else:
         parity = pd.DataFrame(rows).sort_values("Net edge ₹/lot", ascending=False)
         hits = parity[parity["Net edge ₹/lot"] >= min_edge_inr]
@@ -187,12 +186,12 @@ with tab1:
         h3.metric("Best net edge", f"₹{parity['Net edge ₹/lot'].max():,.2f}")
 
         if hits.empty:
-            st.success("✅ Parity clean hai — fees ke baad koi exploitable gap nahi. "
-                       "Ek liquid chain par yahi expected result hai.")
+            st.success("✅ Parity is clean - no exploitable gap after fees. On "
+                       "a liquid chain this is the expected result.")
         else:
-            st.warning(f"⚠️ {len(hits)} strikes par parity gap dikha. "
-                       "Pehle OI aur spread columns dekhein — asli edge se "
-                       "kahin zyada baar ye stale quote hoti hai.")
+            st.warning(f"⚠️ A parity gap appears on {len(hits)} strikes. Check "
+                       "the OI and spread columns first - far more often than "
+                       "real edge, this is a stale quote.")
 
         st.dataframe(
             (hits if not hits.empty else parity.head(15)).style.format({
@@ -203,11 +202,11 @@ with tab1:
             }).background_gradient(subset=["Net edge ₹/lot"], cmap="RdYlGn"),
             width="stretch", height=400, hide_index=True)
 
-        st.info("**Practical note:** Synthetic ko hedge karne ke liye aapko "
-                "perpetual future ki leg chahiye hogi. Uska funding rate aur "
-                "spread is calculation mein **nahi** hai — real edge isse kam "
-                "hoga. Ye bound sirf ye batata hai ki options chain apne aap "
-                "mein consistent hai ya nahi.")
+        st.info("**Practical note:** hedging the synthetic requires a "
+                "perpetual futures leg, whose funding rate and spread are "
+                "**not** in this calculation - the real edge will be smaller. "
+                "This bound only tells you whether the options chain is "
+                "internally consistent.")
 
 # ==========================================================================
 # 2 — VERTICAL BOUNDS
@@ -215,9 +214,9 @@ with tab1:
 
 with tab2:
     st.markdown("### 0 ≤ C(K₁) − C(K₂) ≤ K₂ − K₁   (K₁ < K₂)")
-    st.caption("Neeche wali call kabhi upar wali se sasti nahi ho sakti, "
-               "aur unka farak strike difference se zyada nahi ho sakta. "
-               "Puts par ulta niyam.")
+    st.caption("A lower-strike call can never be cheaper than a higher-strike "
+               "one, and the difference cannot exceed the strike gap. For puts "
+               "the rule is mirrored.")
 
     findings = []
 
@@ -270,11 +269,11 @@ with tab2:
                         })
 
     if not findings:
-        st.success("✅ Koi vertical bound violation nahi mila. "
-                   "Chain internally consistent hai.")
+        st.success("✅ No vertical bound violations - the chain is internally "
+                   "consistent.")
     else:
         vf = pd.DataFrame(findings).sort_values("Net edge ₹/lot", ascending=False)
-        st.warning(f"⚠️ {len(vf)} vertical violations mile (fees ke baad).")
+        st.warning(f"⚠️ {len(vf)} vertical violations found (after fees).")
         st.dataframe(
             vf.style.format({
                 "K₁": "{:,.0f}", "K₂": "{:,.0f}", "Width": "{:,.0f}",
@@ -284,9 +283,9 @@ with tab2:
             }).background_gradient(subset=["Net edge ₹/lot"], cmap="RdYlGn"),
             hide_index=True, width="stretch", height=380,
         )
-        st.error("Aise violations 99% baar stale quote hote hain. Delta ke UI "
-                 "par khud jaakar dono strikes ka live book verify kijiye "
-                 "**pehle** ki koi order bhejein.")
+        st.error("Violations like these are a stale quote 99% of the time. "
+                 "Verify both strikes' live books on Delta's own UI **before** "
+                 "sending any order.")
 
 # ==========================================================================
 # 3 — BUTTERFLY CONVEXITY
@@ -294,13 +293,13 @@ with tab2:
 
 with tab3:
     st.markdown("### C(K₁) − 2·C(K₂) + C(K₃) ≥ 0   (evenly spaced strikes)")
-    st.caption("Option price strike ke saath convex hona chahiye. "
-               "Negative butterfly = free money OR (aksar) middle strike ki "
-               "quote stale hai.")
+    st.caption("Option price must be convex in strike. A negative butterfly is "
+               "either free money or - far more often - a stale quote on the "
+               "middle strike.")
 
     findings = []
 
-    for side_name, frame, is_call in (("CALL", calls, True), ("PUT", puts, False)):
+    for side_name, frame in (("CALL", calls), ("PUT", puts)):
         ks = list(frame.index)
         for i in range(len(ks) - 2):
             k1, k2, k3 = ks[i], ks[i + 1], ks[i + 2]
@@ -332,10 +331,10 @@ with tab3:
                     })
 
     if not findings:
-        st.success("✅ Convexity intact — koi negative-cost butterfly nahi mila.")
+        st.success("✅ Convexity intact - no negative-cost butterfly found.")
     else:
         bf = pd.DataFrame(findings).sort_values("Net edge ₹/lot", ascending=False)
-        st.warning(f"⚠️ {len(bf)} convexity violations mile.")
+        st.warning(f"⚠️ {len(bf)} convexity violations found.")
         st.dataframe(
             bf.style.format({
                 "K₁": "{:,.0f}", "K₂": "{:,.0f}", "K₃": "{:,.0f}",
@@ -345,9 +344,9 @@ with tab3:
             }).background_gradient(subset=["Net edge ₹/lot"], cmap="RdYlGn"),
             hide_index=True, width="stretch", height=360,
         )
-        st.caption("Butterfly ke teen legs matlab **6 fills** (entry + exit). "
-                   "Har fill par spread aur fee lagegi. Paper edge yahan "
-                   "execution mein sabse aasani se mar jaata hai.")
+        st.caption("Three legs on a butterfly means **six fills** (entry plus "
+                   "exit), each paying spread and fee. This is where paper "
+                   "edge dies most easily in execution.")
 
 # ==========================================================================
 # 4 — BOX SPREAD
@@ -355,9 +354,9 @@ with tab3:
 
 with tab4:
     st.markdown("### (C(K₁) − C(K₂)) + (P(K₂) − P(K₁)) = K₂ − K₁")
-    st.caption("Box ek synthetic zero-coupon loan hai — payoff hamesha exactly "
-               "K₂ − K₁ hota hai, spot chahe kahin bhi jaaye. "
-               "Cost isse kam ho to risk-free lock hai.")
+    st.caption("A box is a synthetic zero-coupon loan - the payoff is always "
+               "exactly K₂ − K₁, wherever spot goes. If it costs less than "
+               "that, the difference is a risk-free lock.")
 
     shared = sorted(set(calls.index) & set(puts.index))
     findings = []
@@ -399,11 +398,11 @@ with tab4:
                 })
 
     if not findings:
-        st.success("✅ Koi box arbitrage nahi mila — chain fees ke baad "
-                   "arbitrage-free hai. Yahi normal aur healthy result hai.")
+        st.success("✅ No box arbitrage - the chain is arbitrage-free after "
+                   "fees. This is the normal, healthy result.")
     else:
         bx = pd.DataFrame(findings).sort_values("Net edge ₹/lot", ascending=False)
-        st.warning(f"⚠️ {len(bx)} boxes theoretical edge dikha rahe hain.")
+        st.warning(f"⚠️ {len(bx)} boxes show theoretical edge.")
         st.dataframe(
             bx.style.format({
                 "K₁": "{:,.0f}", "K₂": "{:,.0f}", "Width": "{:,.0f}",
@@ -413,21 +412,20 @@ with tab4:
             }).background_gradient(subset=["Net edge ₹/lot"], cmap="RdYlGn"),
             width="stretch", height=360, hide_index=True)
         st.error(
-            "**Box par teen cheezein yaad rakhein:**\n\n"
-            "1. Chaaron legs ek saath bharni padengi — ek bhi leg reh gayi to "
-            "hedge nahi, naked position ban jaayegi.\n"
-            "2. Margin capital expiry tak block rahega. Annualised return "
-            "nikaal kar dekhiye ki wo blocked capital worth hai ya nahi.\n"
-            "3. Delta par settlement fee alag se lagti hai — wo yahan "
-            "count nahi hui."
+            "**Three things to remember about a box:**\n\n"
+            "1. All four legs must fill together - miss one and you hold a "
+            "naked position, not a hedge.\n"
+            "2. Margin capital stays locked until expiry. Work out the "
+            "annualised return before deciding it is worth that capital.\n"
+            "3. Delta charges a separate settlement fee, which is not counted "
+            "here."
         )
 
 st.markdown("---")
 st.info(
-    "🧠 **Is page ko padhne ka sahi tarika:** Yahan mostly **green (koi violation "
-    "nahi)** dikhna chahiye. Wahi healthy chain ki nishani hai. Agar bahut saare "
-    "violations aa rahe hain, to sabse pehla shak stale data par karein, "
-    "free money par nahi."
+    "🧠 **How to read this page:** it should be mostly **green - no "
+    "violations**. That is what a healthy chain looks like. If many violations "
+    "appear, suspect stale data first, not free money."
 )
 
 ui.render_diagnostics(context, df, settings)

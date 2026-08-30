@@ -1,3 +1,3 @@
-"""MMC Delta Scanner core package (read-only market data tooling)."""
+"""MMC Delta Options Scanner core package (read-only market data tooling)."""
 
-__version__ = "1.0.0"
+__version__ = "2.1.0"

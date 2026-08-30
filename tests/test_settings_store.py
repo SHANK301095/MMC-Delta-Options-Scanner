@@ -1,14 +1,12 @@
-"""Settings file store ke tests.
+"""Tests for the settings file store.
 
-Yahan ka sabse zaroori test wo hai jo ek deployment bug rokta hai: ek Streamlit
-app ek hi process hota hai jise sab visitors share karte hain, to server par
-likha gaya "save" aapka nahi, SABKA setting ban jaata hai. Isliye file store
-sirf tab chalta hai jab app local, single-user run ho.
+The load-bearing test here prevents a deployment bug: a Streamlit app is one
+process shared by every visitor, so a "save" written to the server is not your
+setting but EVERYONE's. Hence the file store runs only when the app is a local,
+single-user session.
 """
 
 from __future__ import annotations
-
-import importlib
 
 import pytest
 
@@ -17,7 +15,7 @@ from mmc_core import settings_store
 
 @pytest.fixture
 def local_mode(monkeypatch, tmp_path):
-    """File store on, aur ek throwaway file par."""
+    """File store enabled, pointed at a throwaway file."""
     monkeypatch.setenv(settings_store.LOCAL_ENV_FLAG, "1")
     monkeypatch.setattr(settings_store, "SETTINGS_FILE", tmp_path / "s.json")
     return settings_store
@@ -25,7 +23,7 @@ def local_mode(monkeypatch, tmp_path):
 
 @pytest.fixture
 def shared_mode(monkeypatch, tmp_path):
-    """Deployed app jaisa — flag set hi nahi."""
+    """Like a deployed app - the flag is simply not set."""
     monkeypatch.delenv(settings_store.LOCAL_ENV_FLAG, raising=False)
     monkeypatch.setattr(settings_store, "SETTINGS_FILE", tmp_path / "s.json")
     return settings_store
@@ -34,7 +32,7 @@ def shared_mode(monkeypatch, tmp_path):
 # ------------------------------------------------- shared deployment
 
 def test_a_shared_deployment_never_writes_settings(shared_mode):
-    """Warna ek visitor ka USD/INR rate har doosre visitor ka rate ban jaata."""
+    """Otherwise one visitor's USD/INR rate becomes every other visitor's."""
     assert shared_mode.is_enabled() is False
     assert shared_mode.save_settings({"usdinr": 92.0}) is False
     assert not shared_mode.SETTINGS_FILE.exists()
@@ -51,7 +49,7 @@ def test_a_shared_deployment_refuses_to_clear(shared_mode):
 
 @pytest.mark.parametrize("value", ["", "0", "true", "yes", "TRUE", " "])
 def test_only_an_exact_flag_turns_the_file_store_on(monkeypatch, value):
-    """Aadha-adhoora flag on nahi maana jaana chahiye — default surakshit hai."""
+    """A half-set flag must not count as on - the safe state is the default."""
     monkeypatch.setenv(settings_store.LOCAL_ENV_FLAG, value)
     assert settings_store.is_enabled() is False
 
@@ -74,12 +72,13 @@ def test_only_known_keys_are_persisted(local_mode):
 
 
 def test_credential_shaped_values_never_reach_the_file(local_mode):
-    """Is project mein kuch secret hai hi nahi, aur settings file ko waisa hi
-    rehna hai — chahe koi galti se aisa key bhej de.
+    """There is nothing secret in this project, and the settings file must stay
+    that way - even if such a key is passed in by mistake.
 
-    Key ka naam jodkar banaya gaya hai kyunki tests/check_read_only.py source
-    mein aise literals dhoondhta hai aur apne hi test par atak jaata. Guard
-    sahi hai; use kamzor karne se behtar hai literal na likhna.
+    The key name is assembled rather than written out because
+    tests/check_read_only.py scans the source for literals like it and would
+    otherwise trip on its own test. The guard is right; not writing the literal
+    beats weakening it.
     """
     credential_key = "api" + "_key"
     local_mode.save_settings({"usdinr": 92.0, credential_key: "abc123"})
@@ -93,7 +92,7 @@ def test_non_scalar_values_are_refused(local_mode):
 
 
 def test_a_corrupt_file_reads_as_empty_instead_of_crashing(local_mode):
-    """Purani ya aadhi likhi file par app khulna chahiye, fatna nahi."""
+    """An old or half-written file must let the app open, not break it."""
     local_mode.SETTINGS_FILE.write_text("{not json", encoding="utf-8")
     assert local_mode.load_settings() == {}
 

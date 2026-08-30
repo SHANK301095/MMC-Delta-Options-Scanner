@@ -9,43 +9,44 @@ echo.
 
 where py >nul 2>nul
 if errorlevel 1 (
-    echo [ERROR] Python nahi mila.
-    echo Python 3.10+ install karein: https://www.python.org/downloads/
-    echo Install karte waqt "Add Python to PATH" zaroor tick karein.
+    echo [ERROR] Python not found.
+    echo Install Python 3.10 or newer: https://www.python.org/downloads/
+    echo During installation, be sure to tick "Add Python to PATH".
     echo.
     pause
     exit /b 1
 )
 
 if not exist ".venv" (
-    echo [1/3] Pehli baar chala rahe hain - virtual environment bana rahe hain...
+    echo [1/3] First run - creating a virtual environment...
     py -m venv .venv
     if errorlevel 1 (
-        echo [ERROR] venv nahi bana. Python installation check karein.
+        echo [ERROR] Could not create the virtual environment.
+        echo Check your Python installation.
         pause
         exit /b 1
     )
 ) else (
-    echo [1/3] Virtual environment mil gaya.
+    echo [1/3] Virtual environment found.
 )
 
 call ".venv\Scripts\activate.bat"
 
-echo [2/3] Libraries check / install kar rahe hain...
+echo [2/3] Checking and installing libraries...
 python -m pip install --upgrade pip --quiet
 python -m pip install -r requirements.txt --quiet
 if errorlevel 1 (
-    echo [ERROR] Libraries install nahi hui. Internet connection check karein.
+    echo [ERROR] Libraries could not be installed. Check your internet connection.
     pause
     exit /b 1
 )
 
-echo [3/3] Scanner launch kar rahe hain...
+echo [3/3] Launching the scanner...
 echo.
-echo Browser apne aap khulega. Band karne ke liye is window mein Ctrl+C dabaiye.
+echo Your browser should open automatically. Press Ctrl+C in this window to stop.
 echo.
 
-REM Local run = ek hi user, isliye settings file safe hai.
+REM A local run means a single user, so the settings file is safe to use.
 set MMC_LOCAL_SETTINGS=1
 
 python -m streamlit run app.py

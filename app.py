@@ -3,12 +3,12 @@ MMC Delta Scanner — Home
 ========================
 Run with:  streamlit run app.py
 
-Delta Exchange India ke BTC/ETH options ka read-only scanner.
-Koi API key, koi secret, koi order-placement code — kahin nahi.
+A read-only scanner for Delta Exchange India's BTC and ETH options.
+No API key, no secret, no order-placement code - anywhere.
 
-Ye page ek hi kaam karta hai: chuni hui expiry ki halat ek nazar mein dikhana,
-taaki aap sahi module par jaayein. Isliye yahan number kam hain, aur har number
-ek faisle se juda hai.
+This page does one job: show the state of the selected expiry at a glance so
+you can move to the right module. That is why there are few numbers here, and
+why each one is tied to a decision.
 """
 
 from __future__ import annotations
@@ -52,9 +52,11 @@ pcr = (put_oi / call_oi) if call_oi > 0 else float("nan")
 spot = context["spot"]
 atm_strike = float("nan")
 if not df.empty:
-    atm_strike = float(df.iloc[(df["strike"] - spot).abs().argsort()[:1]]["strike"].iloc[0])
+    nearest = df.iloc[(df["strike"] - spot).abs().argsort()[:1]]
+    atm_strike = float(nearest["strike"].iloc[0])
 
-atm_pair = df[df["strike"] == atm_strike] if not math.isnan(atm_strike) else df.iloc[0:0]
+atm_pair = (df[df["strike"] == atm_strike]
+            if not math.isnan(atm_strike) else df.iloc[0:0])
 atm_iv = float(atm_pair["iv_pct"].mean()) if not atm_pair.empty else float("nan")
 
 liquid = df[df["two_sided"] & (df["spread_pct"] <= 25)]
@@ -75,66 +77,66 @@ st.markdown(theme.stat_row([
     theme.stat("ATM strike",
                f"{atm_strike:,.0f}" if not math.isnan(atm_strike) else "—"),
     theme.stat("ATM IV", f"{atm_iv:.1f}%" if not math.isnan(atm_iv) else "—",
-               sub="dono sides ka average"),
+               sub="average of both sides"),
     theme.stat("Put/Call OI", f"{pcr:.2f}" if not math.isnan(pcr) else "—",
-               sub="1 se upar = put-heavy"),
+               sub="above 1 = put-heavy"),
     theme.stat("Total OI", f"{call_oi + put_oi:,.0f}", sub="contracts"),
 ]), unsafe_allow_html=True)
 
 st.markdown(
     theme.badge(health_word, health_tone)
     + f'<span style="color:{theme.INK_3};font-size:0.82rem">'
-    f'two-sided book aur 25% se kam spread wale contracts: '
+    f'contracts with a two-sided book and under 25% spread: '
     f'<b style="color:{theme.INK_2}">{health_pct:.0f}%</b></span>',
     unsafe_allow_html=True,
 )
 
 if health_pct < 20:
     st.warning(
-        "Is expiry par liquidity bahut kam hai. Aisi chain par scanner ke "
-        "'opportunities' real nahi hote — order daalte hi spread kha jaata hai. "
-        "Nearest weekly ya daily expiry try karein."
+        "Liquidity is very thin on this expiry. On a chain like this the "
+        "scanner's 'opportunities' are not real - the spread takes them the "
+        "moment an order goes in. Try the nearest weekly or daily expiry."
     )
 
 # --------------------------------------------------------------------------
 # Modules
 # --------------------------------------------------------------------------
 
-st.markdown(theme.section("Modules", "left sidebar se switch kijiye"),
+st.markdown(theme.section("Modules", "switch from the left sidebar"),
             unsafe_allow_html=True)
 
 st.markdown(theme.card_grid([
     theme.nav_card("📈", "Live Chain",
-                   "Call/Put chain side by side, dead strikes auto-hidden, "
-                   "OI profile aur poora cost-of-trading breakdown."),
+                   "Calls and puts side by side, dead strikes auto-hidden, an "
+                   "OI profile and a full cost-of-trading breakdown."),
     theme.nav_card("⏳", "Theta Decay",
-                   "Repricing-based burn ranking, ghanta-ba-ghanta curve, "
-                   "aur multi-leg basket — sab net of fees."),
+                   "Repricing-based burn ranking, an hour-by-hour curve and a "
+                   "multi-leg basket - all net of fees."),
     theme.nav_card("🌊", "IV Skew",
-                   "Volatility smile, 25Δ risk reversal aur butterfly, "
-                   "aur expiries ke aar-paar ATM IV curve."),
+                   "The volatility smile, 25Δ risk reversal and butterfly, and "
+                   "the ATM IV curve across expiries."),
     theme.nav_card("🎯", "Payoff Builder",
-                   "8 preset strategies, executable fills, expiry + T+0 "
-                   "curves, break-evens aur net greeks."),
+                   "Eight preset strategies, executable fills, expiry and T+0 "
+                   "curves, break-evens and net greeks."),
     theme.nav_card("🔎", "Mispricing",
-                   "Put-call parity, vertical bounds, butterfly convexity "
-                   "aur box spreads — model-free aur fee-adjusted."),
+                   "Put-call parity, vertical bounds, butterfly convexity and "
+                   "box spreads - model-free and fee-adjusted."),
     theme.nav_card("📐", "Delta Filter",
-                   "Delta band se strike chuniye, live bid/ask aur "
-                   "net-of-cost theta ke saath."),
+                   "Pick strikes by delta band, with live bid/ask and "
+                   "net-of-cost theta."),
     theme.nav_card("🌡️", "Vol Regime",
-                   "VIX-style index, 30-din constant maturity, aur ek "
-                   "regime gate jo batata hai ki aapki condition poori hai ya nahi."),
+                   "A VIX-style index at 30-day constant maturity, with a "
+                   "regime gate that says whether your condition is met."),
 ]), unsafe_allow_html=True)
 
-st.caption("Saari settings har page par same rehti hain — ek baar set karke "
-           "sidebar mein **Save** dabaiye.")
+st.caption("Settings are shared across every page, and your current view is "
+           "kept in the URL - bookmark it to come back to it.")
 
 ui.render_diagnostics(context, df, settings)
 
 st.caption(
     "MMC Delta Scanner · Data: api.india.delta.exchange public endpoints · "
-    "Read-only · Ye tool sirf market data dikhata hai, trading advice nahi."
+    "Read-only · This tool displays market data, not trading advice."
 )
 
 ui.maybe_auto_refresh(settings)

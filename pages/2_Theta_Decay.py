@@ -26,14 +26,13 @@ import streamlit as st
 
 from mmc_core import charts as ch
 from mmc_core import delta_api as api
-from mmc_core import fees as fx
 from mmc_core import options_math as om
 from mmc_core import theme
 from mmc_core import ui_common as ui
 
 ui.page_setup(
     "Theta Decay Calculator",
-    "Repricing-based premium burn · ₹ per lot · hour by hour till expiry",
+    "Repricing-based premium burn · ₹ per lot · hour by hour to expiry",
     icon="⏳",
 )
 
@@ -61,17 +60,18 @@ filtered = ui.apply_liquidity_filter(df, **liq)
 
 if filtered.empty:
     st.markdown(theme.empty_state(
-        "🫙", "Liquidity filter ke baad koi strike nahi bacha",
-        "Sidebar mein spread limit badhaiye ya strike range widen kijiye. "
-        "Decay sirf un strikes par matlab rakhta hai jinse aap nikal bhi sakein."
+        "🫙", "No strike survived the liquidity filter",
+        "Raise the spread limit in the sidebar or widen the strike range. Decay "
+        "only means something on strikes you can actually exit."
     ), unsafe_allow_html=True)
     ui.render_diagnostics(context, df, settings)
     st.stop()
 
 
 def usd_to_inr_lot(usd_per_unit: float) -> float:
-    """USD per unit of underlying -> ₹ per lot."""
-    if usd_per_unit is None or (isinstance(usd_per_unit, float) and math.isnan(usd_per_unit)):
+    """USD per unit of underlying -> rupees per lot."""
+    if usd_per_unit is None or (isinstance(usd_per_unit, float)
+                                and math.isnan(usd_per_unit)):
         return float("nan")
     return usd_per_unit * cv * usdinr
 
@@ -85,11 +85,16 @@ tab_scan, tab_lab, tab_basket = st.tabs(
 # ==========================================================================
 
 with tab_scan:
-    st.markdown(theme.section("Kaunse strikes sabse tez jal rahe hain", "burn = repricing se, analytic theta se nahi"), unsafe_allow_html=True)
+    st.markdown(
+        theme.section("Which strikes are burning fastest",
+                      "burn from repricing, not from analytic theta"),
+        unsafe_allow_html=True,
+    )
 
     horizon_hours = st.slider(
         "Decay horizon (hours ahead)", min_value=1, max_value=72, value=24,
-        help="Itne ghante mein kitna premium jalega — spot aur IV constant maan kar.",
+        help="How much premium burns over this many hours, holding spot and "
+             "IV constant.",
     )
 
     rows = []
@@ -129,11 +134,12 @@ with tab_scan:
             "Net after cost ₹": burn_inr - cost_inr,
             "Analytic θ ₹/lot/day": theta_inr,
             "Spread %": float(row["spread_pct"]),
-            "OI": float(row["oi_contracts"]) if not math.isnan(row["oi_contracts"]) else 0.0,
+            "OI": (float(row["oi_contracts"])
+                   if not math.isnan(row["oi_contracts"]) else 0.0),
         })
 
     if not rows:
-        st.warning("Decay compute karne ke liye valid IV wala koi strike nahi mila.")
+        st.warning("No strike has a valid IV, so decay cannot be computed.")
     else:
         scan = pd.DataFrame(rows)
         burn_col = f"Burn ₹/lot ({horizon_hours}h)"
@@ -170,16 +176,16 @@ with tab_scan:
         losers = scan[scan["Net after cost ₹"] <= 0]
         if not losers.empty:
             st.error(
-                f"⚠️ **{len(losers)} strikes par {horizon_hours}h ka decay "
-                "round-trip cost se kam hai.** In par premium bechne se pehle "
-                "din se hi ghaata hai — chahe theta kitna bhi 'juicy' dikhe."
+                f"⚠️ **On {len(losers)} strikes, {horizon_hours}h of decay is "
+                "smaller than the round-trip cost.** Selling premium on them "
+                "loses money from day one, however juicy the theta looks."
             )
 
         st.info(
-            "**Padhne ka tarika:** *Burn % of premium* sabse upar wale strikes theta "
-            "sellers ko sabse 'juicy' lagte hain — lekin yahi wo strikes hain "
-            "jinka gamma risk sabse zyada hai, aur aksar spread bhi. "
-            "**Net after cost** column hi asli decision number hai."
+            "**How to read this:** the strikes at the top of *Burn % of "
+            "premium* look juiciest to a theta seller - but they are also the "
+            "ones carrying the most gamma risk, and often the widest spread. "
+            "The **Net after cost** column is the real decision number."
         )
 
         st.download_button(
@@ -195,7 +201,7 @@ with tab_scan:
 # ==========================================================================
 
 with tab_lab:
-    st.markdown(theme.section("Ek strike ka poora decay curve"), unsafe_allow_html=True)
+    st.markdown(theme.section("One strike's full decay curve"), unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns([2, 1, 1])
 
@@ -206,7 +212,8 @@ with tab_lab:
     with c1:
         chosen_strike = st.selectbox(
             "Strike", strikes, index=default_idx,
-            format_func=lambda x: f"{x:,.0f}  ({(x - spot) / spot * 100:+.1f}% from spot)",
+            format_func=lambda x: (f"{x:,.0f}  "
+                                  f"({(x - spot) / spot * 100:+.1f}% from spot)"),
         )
     with c2:
         chosen_side = st.radio("Type", ["CALL", "PUT"], horizontal=True)
@@ -218,16 +225,16 @@ with tab_lab:
                      & (filtered["is_call"] == is_call)]
 
     if match.empty:
-        st.warning(f"{chosen_strike:,.0f} {chosen_side} filter ke baad available "
-                   "nahi hai. Dusra strike chunein ya filter dheela karein.")
+        st.warning(f"{chosen_strike:,.0f} {chosen_side} did not survive the "
+                   "filter. Pick another strike or loosen the filter.")
     else:
         leg = match.iloc[0]
         sigma = float(leg["iv"])
         t_now = float(leg["t_years"])
 
         if math.isnan(sigma) or sigma <= 0 or t_now <= 0:
-            st.error("Is strike ki IV ya time-to-expiry invalid hai — "
-                     "decay curve nahi ban sakta.")
+            st.error("This strike's IV or time-to-expiry is invalid, so no "
+                     "decay curve can be built.")
         else:
             premium_inr = usd_to_inr_lot(float(leg["mark_price"])) * lots
             theta_inr = float(leg["theta_lot_inr"]) * lots
@@ -246,8 +253,8 @@ with tab_lab:
             k1.metric(f"Premium ({lots} lot)", f"₹{premium_inr:,.2f}")
             k2.metric("Next 1 hour burn", f"₹{burn_1h_inr:,.2f}")
             k3.metric("Next 24 hour burn", f"₹{burn_24h_inr:,.2f}",
-                      help="Repricing se — analytic theta se thoda alag hoga, "
-                           "aur wahi sahi hai.")
+                      help="From repricing - it will differ slightly from "
+                           "analytic theta, and this is the correct one.")
             k4.metric("Analytic θ / day", f"₹{theta_inr:,.2f}")
 
             g1, g2, g3, g4 = st.columns(4)
@@ -263,10 +270,10 @@ with tab_lab:
                     diff_pct = (abs(burn_24h_usd) - analytic_24h) / analytic_24h * 100.0
                     if abs(diff_pct) > 10:
                         st.warning(
-                            f"Analytic theta aur actual 24h repricing mein "
-                            f"**{diff_pct:+.0f}%** ka farak hai. Ye normal hai jab "
-                            "expiry paas ho — theta accelerate karta hai. "
-                            "Repricing wala number hi trust karein."
+                            f"Analytic theta and the actual 24h repricing "
+                            f"differ by **{diff_pct:+.0f}%**. That is normal "
+                            "near expiry, where theta accelerates. Trust the "
+                            "repricing figure."
                         )
 
             # ---- Decay curve ------------------------------------------
@@ -277,11 +284,16 @@ with tab_lab:
             if schedule:
                 curve = pd.DataFrame(schedule)
                 curve["Premium ₹"] = curve["price"].apply(usd_to_inr_lot) * lots
-                curve["Cumulative burn ₹"] = curve["cum_decay"].apply(usd_to_inr_lot) * lots
+                curve["Cumulative burn ₹"] = (
+                    curve["cum_decay"].apply(usd_to_inr_lot) * lots)
                 curve["Step burn ₹"] = curve["step_decay"].apply(usd_to_inr_lot) * lots
                 curve["Hours ahead"] = curve["hours_ahead"].round(2)
 
-                st.markdown(theme.section("Premium melting away", "premium bacha aur burn — dono ₹ per lot"), unsafe_allow_html=True)
+                st.markdown(
+                    theme.section("Premium melting away",
+                                  "premium remaining and burn, both ₹ per lot"),
+                    unsafe_allow_html=True,
+                )
                 st.plotly_chart(
                     ch.decay_curve(curve["Hours ahead"].tolist(),
                                    curve["Premium ₹"].tolist(),
@@ -289,7 +301,12 @@ with tab_lab:
                     width="stretch",
                 )
 
-                st.markdown(theme.section("Burn per step", "dahini taraf uthta tail = theta acceleration"), unsafe_allow_html=True)
+                st.markdown(
+                    theme.section("Burn per step",
+                                  "the rising tail on the right is theta "
+                                  "acceleration"),
+                    unsafe_allow_html=True,
+                )
                 st.plotly_chart(
                     ch.burn_bars(curve["Hours ahead"].tolist(),
                                  curve["Step burn ₹"].tolist()),
@@ -309,9 +326,9 @@ with tab_lab:
                     )
 
             st.caption(
-                "⚠️ Ye curve **spot aur IV ko constant** maan kar bana hai. "
-                "Real life mein spot hilega (delta/gamma P&L) aur IV badlegi "
-                "(vega P&L) — decay sirf teen mein se ek component hai."
+                "⚠️ This curve holds **spot and IV constant**. In practice spot "
+                "moves (delta and gamma P&L) and IV changes (vega P&L) - decay "
+                "is only one of the three components."
             )
 
 # ==========================================================================
@@ -319,9 +336,12 @@ with tab_lab:
 # ==========================================================================
 
 with tab_basket:
-    st.markdown(theme.section("Multi-leg position ka net theta"), unsafe_allow_html=True)
-    st.caption("Neeche table mein legs add kijiye. Sell = premium receive, "
-               "Buy = premium pay. Rows add/delete karne ke liye table use karein.")
+    st.markdown(
+        theme.section("Net theta for a multi-leg position"),
+        unsafe_allow_html=True,
+    )
+    st.caption("Add legs in the table below. Sell receives premium, Buy pays "
+               "it. Use the table to add or delete rows.")
 
     options_list = []
     label_to_row = {}
@@ -332,7 +352,7 @@ with tab_basket:
         label_to_row[label] = row
 
     if not options_list:
-        st.warning("Koi tradable leg available nahi hai.")
+        st.warning("No tradable leg is available.")
     else:
         default_leg = min(options_list,
                           key=lambda l: abs(label_to_row[l]["strike"] - spot))
@@ -373,7 +393,7 @@ with tab_basket:
                          "side": e.get("Side")})
 
         if not legs:
-            st.info("Kam se kam ek valid leg add kijiye.")
+            st.info("Add at least one valid leg.")
         else:
             net_premium_inr = 0.0
             net_theta_inr = 0.0
@@ -407,7 +427,8 @@ with tab_basket:
                       delta="PAID" if net_premium_inr > 0 else "RECEIVED",
                       delta_color="inverse" if net_premium_inr > 0 else "normal")
             b2.metric("Net θ per day", f"₹{net_theta_inr:,.2f}",
-                      help="Positive = decay aapke favour mein hai (net short premium).")
+                      help="Positive means decay works in your favour (net "
+                           "short premium).")
             b3.metric("Net Delta", f"{net_delta:+.4f} {settings['underlying']}")
             b4.metric("Net Vega", f"₹{net_vega_inr:,.2f} / vol pt")
 
@@ -453,7 +474,10 @@ with tab_basket:
                         "Decay-only P&L ₹": pnl,
                     }).set_index("Hours ahead")
 
-                    st.markdown(theme.section("Decay-only P&L", "spot aur IV frozen"), unsafe_allow_html=True)
+                    st.markdown(
+                        theme.section("Decay-only P&L", "spot and IV held constant"),
+                        unsafe_allow_html=True,
+                    )
                     st.plotly_chart(
                         ch.decay_curve(pnl_df.index.tolist(),
                                        pnl_df["Decay-only P&L ₹"].tolist(),
@@ -462,14 +486,15 @@ with tab_basket:
                     )
 
                     final_pnl = pnl[-1] if pnl else 0.0
-                    st.metric("Agar expiry tak spot & IV bilkul na hile",
+                    st.metric("If spot and IV never move until expiry",
                               f"₹{final_pnl:,.2f}")
 
             st.warning(
-                "**Ye P&L sirf theta ka hissa hai.** Spot movement (delta/gamma) "
-                "aur IV change (vega) is chart mein nahi hain. Short-premium "
-                "position par gamma loss aksar theta gain se bada ho jaata hai — "
-                "isi liye Net Delta aur Net Vega bhi upar dikhaye gaye hain."
+                "**This P&L is the theta component only.** Spot movement (delta "
+                "and gamma) and IV change (vega) are not in this chart. On a "
+                "short-premium position the gamma loss frequently exceeds the "
+                "theta gain - which is why Net Delta and Net Vega are shown "
+                "above as well."
             )
 
 ui.render_diagnostics(context, df, settings)

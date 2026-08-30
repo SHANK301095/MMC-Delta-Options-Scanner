@@ -1,11 +1,11 @@
-"""Streamlit pages ko ek synthetic chain par sach mein chalane wale tests.
+"""Tests that actually run the Streamlit pages against a synthetic chain.
 
-Compile check sirf syntax pakadta hai. Ek page column ka naam galat likhne,
-format string tod dene, ya widget ko galat tarike se banane par bhi import ho
-jaata hai — aur crash tabhi hota hai jab user page kholta hai. Delta ka API
-in tests se chhuaa nahi jaata: dono network calls ek deterministic chain se
-replace ho jaati hain jo Black-Scholes se khud banti hai, taaki calibration
-layer ke paas reprice karne ke liye consistent data ho.
+A compile check only catches syntax. A page that misnames a column, breaks a
+format string or builds a widget incorrectly still imports cleanly - and only
+crashes when a user opens it. Delta's API is never touched by these tests: both
+network calls are replaced with a deterministic chain generated from
+Black-Scholes, so the calibration layer has consistent data to reprice
+against.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ AppTest = streamlit_testing.AppTest
 
 UTC = timezone.utc
 
-# AppTest relative paths ko CALLING file ke against resolve karta hai, test ke
-# rootdir ke against nahi - isliye har path repo root se banaya jaata hai.
+# AppTest resolves relative paths against the CALLING file, not the test
+# rootdir - so every path is built from the repo root.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 SPOT = 100_000.0
@@ -36,7 +36,7 @@ CONTRACT_VALUE = 0.001
 
 
 def _expiry() -> datetime:
-    """7 din baad, 12:00 UTC — Delta India ka asli settlement waqt."""
+    """Seven days out at 12:00 UTC - Delta India's real settlement time."""
     day = (datetime.now(UTC) + timedelta(days=7)).date()
     return datetime(day.year, day.month, day.day, 12, 0, tzinfo=UTC)
 
@@ -61,11 +61,11 @@ def _products() -> pd.DataFrame:
 
 
 def _tickers() -> list:
-    """Mark price aur greeks Black-Scholes se — IV percent mein bheji jaati hai.
+    """Mark prices and greeks from Black-Scholes, with IV supplied in percent.
 
-    Ye consistency zaroori hai: calibration layer IV ko dono tarah se reprice
-    karke decide karta hai ki API percent bhej raha hai ya decimal. Random
-    numbers bhejne par wo verdict hi meaningless ho jaata."""
+    That consistency matters: the calibration layer decides whether the API
+    sends percent or decimal by repricing the IV both ways. Random numbers would
+    make its verdict meaningless."""
     expiry = _expiry()
     now = datetime.now(UTC)
     t_years = om.years_to_expiry(now, expiry)
@@ -81,7 +81,7 @@ def _tickers() -> list:
                 "contract_type": "call_options" if is_call else "put_options",
                 "mark_price": f"{mark:.4f}",
                 "spot_price": f"{SPOT:.2f}",
-                "mark_iv": f"{SIGMA * 100:.2f}",          # percent, Delta ki tarah
+                "mark_iv": f"{SIGMA * 100:.2f}",          # percent, as Delta sends it
                 "greeks": {k: f"{v:.10f}" for k, v in greeks.items()},
                 "quotes": {
                     "best_bid": f"{max(0.01, mark - spread / 2):.4f}",
@@ -97,7 +97,7 @@ def _tickers() -> list:
 
 @pytest.fixture
 def offline_chain(monkeypatch):
-    """Dono network calls ko deterministic data se badal dijiye."""
+    """Replace both network calls with deterministic data."""
     monkeypatch.setattr(api, "fetch_option_products", _products)
     monkeypatch.setattr(api, "fetch_chain_raw",
                         lambda underlying, api_date, cache_bucket: _tickers())
@@ -125,24 +125,24 @@ def test_page_renders_without_exception(page, offline_chain):
 
 
 def test_delta_filter_page_shows_only_in_band_contracts(offline_chain):
-    """Page ka poora point: band ke bahar ka kuch bhi table mein nahi aana chahiye."""
+    """The page's whole purpose: nothing outside the band may reach the table."""
     at = AppTest.from_file(str(DELTA_PAGE), default_timeout=90)
     at.session_state["delta_band_main"] = (20, 30)
     at.run()
     assert not at.exception
 
-    assert at.dataframe, "live rates table render hi nahi hui"
+    assert at.dataframe, "the live rates table did not render"
     shown = at.dataframe[0].value
-    assert len(shown) > 0, "20-30 delta band khaali aayi - fixture chain shaq mein hai"
+    assert len(shown) > 0, "the 20-30 delta band came back empty - suspect the fixture"
 
     abs_delta = shown["Δ"].abs() * 100.0
     assert abs_delta.between(20, 30).all()
-    # Dono sides aani chahiye - band absolute delta par lagta hai.
+    # Both sides must appear - the band applies to absolute delta.
     assert set(shown["Type"]) == {"CALL", "PUT"}
 
 
 def test_delta_filter_page_survives_a_band_with_no_matches(offline_chain):
-    """Khaali band par page ko samjhaana chahiye, crash nahi karna chahiye."""
+    """On an empty band the page should explain itself, not crash."""
     at = AppTest.from_file(str(DELTA_PAGE), default_timeout=90)
     at.session_state["delta_band_main"] = (99, 100)
     at.run()
@@ -169,7 +169,7 @@ _HERO_RE = re.compile(r'class="mmc-hero-value[^"]*">([^<]+)<')
 
 
 def _hero_value(at):
-    """Rendered page se hero ka number nikaaliye, ya None."""
+    """Extract the hero number from the rendered page, or None."""
     for block in at.markdown:
         found = _HERO_RE.search(str(block.value))
         if found:
@@ -183,12 +183,12 @@ def _hero_value(at):
 
 def test_vol_regime_page_reports_in_regime_when_the_band_contains_the_index(
         offline_chain):
-    """Fixture chain 55% vol par bani hai, to 40-80 band ke andar aana chahiye."""
+    """The fixture chain is built at 55% vol, so it falls inside a 40-80 band."""
     at = AppTest.from_file(str(VOL_PAGE), default_timeout=120)
     at.session_state["vol_regime_band"] = (40, 80)
     at.run()
     assert not at.exception
-    assert at.success, "in-regime hone par success banner aana chahiye"
+    assert at.success, "an in-regime reading should show a success banner"
 
 
 def test_vol_regime_page_warns_when_the_index_is_outside_the_band(offline_chain):
@@ -196,29 +196,29 @@ def test_vol_regime_page_warns_when_the_index_is_outside_the_band(offline_chain)
     at.session_state["vol_regime_band"] = (5, 10)
     at.run()
     assert not at.exception
-    assert at.warning, "band ke bahar hone par warning aani chahiye"
+    assert at.warning, "a reading outside the band should show a warning"
     assert not at.success
 
 
 def test_vol_regime_headline_is_close_to_the_vol_the_fixture_was_built_from(
         offline_chain):
-    """Poore stack ka round trip: BS chain -> tickers -> normalize -> index."""
+    """A round trip through the whole stack: BS chain -> tickers -> normalize -> index."""
     at = AppTest.from_file(str(VOL_PAGE), default_timeout=120).run()
     assert not at.exception
 
-    # Headline ab ek hero block hai, native metric nahi — test ka maqsad wahi
-    # hai (poore stack ka round trip), sirf padhne ki jagah badli hai.
+    # The headline is now a hero block rather than a native metric - the test's
+    # purpose is unchanged, only where it reads the value from.
     value = _hero_value(at)
-    assert value is not None, "VIX hero render hi nahi hua"
+    assert value is not None, "the volatility hero did not render"
     assert value == pytest.approx(SIGMA * 100, rel=0.10)
 
 
 # ------------------------------------------------- auto-refresh & links
 
 def test_auto_refresh_does_not_block_or_break_the_page(offline_chain):
-    """Pehle ye `time.sleep(interval)` karta tha — har viewer ka thread poore
-    interval ke liye soya rehta tha aur click queue ho jaate the. Ab ek timer
-    fragment hai; page normal render hona chahiye."""
+    """This used to call `time.sleep(interval)`, which slept each viewer's
+    thread for the whole interval and queued their clicks. It is now a timer
+    fragment; the page should render normally."""
     at = AppTest.from_file(str(REPO_ROOT / "app.py"), default_timeout=120)
     at.session_state["auto_refresh"] = True
     at.session_state["refresh_seconds"] = 5
@@ -227,7 +227,7 @@ def test_auto_refresh_does_not_block_or_break_the_page(offline_chain):
 
 
 def test_a_shared_link_restores_the_view(offline_chain):
-    """Link bhejne ka poora point: kholne wale ko wahi screen mile."""
+    """The whole point of sending a link: the recipient sees the same screen."""
     at = AppTest.from_file(str(DELTA_PAGE), default_timeout=120)
     at.query_params["u"] = "BTC"
     at.query_params["p"] = "mark"
@@ -241,7 +241,7 @@ def test_a_shared_link_restores_the_view(offline_chain):
 
 
 def test_a_link_with_junk_params_still_opens(offline_chain):
-    """Kharab param se app default par chale, crash na kare."""
+    """A bad param should fall back to the default, not crash."""
     at = AppTest.from_file(str(DELTA_PAGE), default_timeout=120)
     at.query_params["u"] = "<script>alert(1)</script>"
     at.query_params["fx"] = "abc"
@@ -251,8 +251,8 @@ def test_a_link_with_junk_params_still_opens(offline_chain):
 
 
 def test_a_link_naming_an_expiry_that_no_longer_exists_falls_back(offline_chain):
-    """Expiry beet jaati hain, par purane link ghoomte rehte hain. Aise link ko
-    maujooda expiry par khulna chahiye, tootna nahi."""
+    """Expiries pass, but old links keep circulating. Such a link should open
+    on a current expiry rather than break."""
     at = AppTest.from_file(str(DELTA_PAGE), default_timeout=120)
     at.query_params["e"] = "01-01-2020"
     at.run()

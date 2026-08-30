@@ -25,7 +25,6 @@ import streamlit as st
 
 from mmc_core import charts as ch
 from mmc_core import delta_api as api
-from mmc_core import options_math as om
 from mmc_core import theme
 from mmc_core import ui_common as ui
 
@@ -54,9 +53,9 @@ filtered = ui.apply_liquidity_filter(df, **liq)
 
 if filtered.empty or filtered["iv"].notna().sum() < 3:
     st.markdown(theme.empty_state(
-        "🌊", "Skew banane ke liye kam se kam 3 valid IV chahiye",
-        "Filter ne itne contracts hata diye ki curve banti hi nahi. "
-        "Spread limit badhaiye ya strike range widen kijiye."
+        "🌊", "A skew needs at least three valid IVs",
+        "The filter removed so many contracts that no curve can be drawn. "
+        "Raise the spread limit or widen the strike range."
     ), unsafe_allow_html=True)
     ui.render_diagnostics(context, df, settings)
     ui.maybe_auto_refresh(settings)
@@ -90,7 +89,10 @@ with tab_smile:
     st.plotly_chart(fig, width="stretch")
 
     # ---- Skew metrics ---------------------------------------------------
-    st.markdown(theme.section("Skew metrics", "25Δ par interpolate kiya gaya"), unsafe_allow_html=True)
+    st.markdown(
+        theme.section("Skew metrics", "interpolated at 25Δ"),
+        unsafe_allow_html=True,
+    )
 
     def iv_at_delta(frame: pd.DataFrame, target_delta: float) -> float:
         """Linear-interpolate IV at a target absolute delta.
@@ -136,29 +138,32 @@ with tab_smile:
     k1.metric("ATM IV", f"{atm_iv:.1f}%" if not math.isnan(atm_iv) else "—")
     k2.metric("25Δ Risk Reversal",
               f"{rr25:+.2f}" if not math.isnan(rr25) else "—",
-              help="25Δ Call IV − 25Δ Put IV. Positive = calls mehnge "
-                   "(upside demand). Negative = puts mehnge (crash hedging).")
+              help="25Δ call IV − 25Δ put IV. Positive means calls are "
+                   "expensive (upside demand); negative means puts are "
+                   "(crash hedging).")
     k3.metric("25Δ Butterfly",
               f"{bf25:+.2f}" if not math.isnan(bf25) else "—",
-              help="Wings ka average minus ATM. Zyada = smile gehra = "
-                   "market tail risk price kar raha hai.")
+              help="The average of the wings minus ATM. Higher means a deeper "
+                   "smile - the market is pricing tail risk.")
     k4.metric("10Δ Put − 10Δ Call",
-              f"{(p10 - c10):+.2f}" if not (math.isnan(p10) or math.isnan(c10)) else "—",
-              help="Deep tail skew. Crypto mein aksar put side bhaari hota hai.")
+              f"{(p10 - c10):+.2f}"
+              if not (math.isnan(p10) or math.isnan(c10)) else "—",
+              help="Deep tail skew. In crypto the put side is usually heavier.")
 
     if not math.isnan(rr25):
         if rr25 > 1.5:
-            st.info("**Call skew:** Market upside ke liye premium de raha hai. "
-                    "Call spreads bechne wale ko yahan zyada credit milega, "
-                    "lekin ye aksar rally ke beech dikhta hai — "
-                    "matlab momentum ke against ja rahe honge.")
+            st.info("**Call skew:** the market is paying up for upside. "
+                    "Selling call spreads earns more credit here, but this "
+                    "usually appears mid-rally - meaning you would be trading "
+                    "against momentum.")
         elif rr25 < -1.5:
-            st.info("**Put skew:** Downside protection mehngi hai. Ye crypto ki "
-                    "default state hai. Put selling se credit accha milega par "
-                    "gap-down risk usi wajah se price hua hai.")
+            st.info("**Put skew:** downside protection is expensive. This is "
+                    "crypto's default state. Selling puts earns good credit, "
+                    "but the gap-down risk is exactly why it is priced that "
+                    "way.")
         else:
-            st.info("**Flat skew:** Dono taraf lagbhag barabar priced hai. "
-                    "Directional skew trades ke liye edge kam hai.")
+            st.info("**Flat skew:** both sides are priced about equally. "
+                    "There is little edge in a directional skew trade.")
 
     # ---- IV table -------------------------------------------------------
     with st.expander("📋 Strike-wise IV table"):
@@ -182,26 +187,29 @@ with tab_smile:
 # ==========================================================================
 
 with tab_term:
-    st.markdown(theme.section("ATM IV across every live expiry"), unsafe_allow_html=True)
-    st.caption("Har expiry ke liye ek alag API call jaati hai. "
-               "Expiries jitni zyada, utna time lagega — sab cached hai.")
+    st.markdown(
+        theme.section("ATM IV across every live expiry"),
+        unsafe_allow_html=True,
+    )
+    st.caption("Each expiry costs a separate API call, so more expiries take "
+               "longer. All of them are cached.")
 
-    max_expiries = st.slider("Kitni expiries scan karein", 2, 12, 6)
+    max_expiries = st.slider("How many expiries to scan", 2, 12, 6)
     expiries = settings.get("expiries", [])[:max_expiries]
 
     if len(expiries) < 2:
-        st.warning("Term structure ke liye kam se kam 2 live expiries chahiye.")
+        st.warning("A term structure needs at least two live expiries.")
     else:
         bucket = api.make_cache_bucket(settings["refresh_seconds"])
         rows = []
-        progress = st.progress(0.0, text="Expiries fetch kar rahe hain...")
+        progress = st.progress(0.0, text="Fetching expiries…")
 
         for idx, exp in enumerate(expiries):
             try:
                 raw = api.fetch_chain_raw(settings["underlying"],
                                           exp["api_date"], bucket)
             except api.DeltaApiError as exc:
-                st.warning(f"{exp['api_date']} skip kiya: {exc}")
+                st.warning(f"Skipped {exp['api_date']}: {exc}")
                 continue
 
             sub = api.normalize_chain(raw, products)
@@ -240,7 +248,8 @@ with tab_term:
         progress.empty()
 
         if len(rows) < 2:
-            st.warning("Sirf ek expiry se data mila — term structure nahi ban sakta.")
+            st.warning("Only one expiry returned data - no term structure can "
+                       "be built.")
         else:
             term = pd.DataFrame(rows).sort_values("Days")
 
@@ -262,18 +271,19 @@ with tab_term:
             t3.metric("Slope (back − front)", f"{slope:+.1f} vol pts")
 
             if slope > 2:
-                st.info("**Contango** — door ki vol mehngi hai. Calendar spread "
-                        "(front bechna, back kharidna) ke liye theoretically "
-                        "achha setup, lekin front expiry ka gamma risk yaad rahe.")
+                st.info("**Contango** - far-dated volatility is expensive. In "
+                        "theory a good setup for a calendar spread (sell the "
+                        "front, buy the back), but remember the front expiry's "
+                        "gamma risk.")
             elif slope < -2:
-                st.info("**Backwardation** — paas ki vol mehngi hai. Aam taur par "
-                        "market kisi turant event ya stress ko price kar raha "
-                        "hota hai. Front premium selling tempting lagti hai "
-                        "aur usi liye khatarnak hoti hai.")
+                st.info("**Backwardation** - near-dated volatility is "
+                        "expensive. Usually the market is pricing an imminent "
+                        "event or some stress. Selling front premium looks "
+                        "tempting, and is dangerous for that very reason.")
             else:
-                st.info("**Flat term structure** — expiries ke beech koi khaas "
-                        "vol edge nahi. Calendar trades par fees aur spread "
-                        "hi jeet jayenge.")
+                st.info("**Flat term structure** - no meaningful volatility "
+                        "edge between expiries. On a calendar trade the fees "
+                        "and spread would win.")
 
             st.dataframe(
                 term.style.format({

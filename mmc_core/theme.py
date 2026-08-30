@@ -1,41 +1,42 @@
 """
-MMC Delta Scanner — Design System
+MMC Delta Scanner - Design System
 =================================
-Ek hi jagah se poore app ka look: colours, spacing, type, aur wo chhote
-components jo har page dohraata hai.
+One place that defines how the whole app looks: colours, spacing, type, and the
+small components every page repeats.
 
-DARK-ONLY, JAAN-BOOJH KAR
--------------------------
-Ye ek trading terminal hai — log ise ghanton tak dekhte hain, aksar andhere
-mein. Isliye theme dark par tay hai (`.streamlit/config.toml` mein bhi), taaki
-Streamlit ke apne widgets aur hamari CSS ek hi surface par baithein. "Dono modes
-support kar lete hain" sunne mein achha lagta hai, par practically iska matlab
-hota hai dono aadhe-adhoore.
+DARK ONLY, DELIBERATELY
+-----------------------
+This is a trading terminal - people stare at it for hours, often in a dark
+room. So the theme is fixed to dark (in `.streamlit/config.toml` too), which
+keeps Streamlit's own widgets and our CSS on the same surface. "We support both
+modes" sounds good, but in practice it means doing both of them badly.
 
-COLOUR KA EK HI NIYAM
----------------------
-Har rang ka ek hi kaam hai, aur wo kaam kabhi badalta nahi:
+ONE RULE FOR COLOUR
+-------------------
+Every colour has exactly one job, and that job never changes:
 
-    CALL / profit / decay aapke favour mein   -> ACCENT_UP   (aqua-green)
-    PUT / loss / decay aapke khilaf           -> ACCENT_DOWN (red)
-    Analytical series (model curve, payoff)   -> SERIES_1 / SERIES_2
-    Spot, ATM, thresholds                     -> INK_2 hairline (rang nahi)
-    Status: healthy / watch / risky / broken  -> STATUS_* (sirf badges aur gates)
+    CALL / profit / decay in your favour     -> ACCENT_UP   (aqua-green)
+    PUT / loss / decay against you           -> ACCENT_DOWN (red)
+    Analytical series (model curve, payoff)  -> SERIES_1 / SERIES_2
+    Spot, ATM, thresholds                    -> INK_2 hairline (no hue)
+    Status: healthy / watch / risky / broken -> STATUS_* (badges and gates only)
 
-Status ke rang series ke rang se alag hain aur kabhi aapas mein udhaar nahi
-lete. Ek chart ki "warning" bar aur ek regime gate ka "critical" badge kabhi
-ek jaise nahi dikhne chahiye — warna dono ka matlab khatam.
+Status colours are distinct from series colours and never borrow from each
+other. A chart's "warning" bar and a regime gate's "critical" badge must never
+look alike, or both stop meaning anything.
 
-CALL/PUT PAIR PAR EK ZAROORI PABANDI
-------------------------------------
-Green/put-red market ki bhasha hai, isse badalna UX bigaadna hoga. Lekin ye
-theek wahi jodi hai jo protanopia mein sabse kam alag dikhti hai (validate
-karne par CVD ΔE 6.5 — warn band). Isliye niyam: **jahan calls aur puts ek hi
-chart mein hain, wahan rang ke alawa ek doosra channel bhi lazmi hai** —
-marker ka shape, ya line ka dash. Rang akela kabhi identity nahi uthaata.
+ONE CONSTRAINT ON THE CALL/PUT PAIR
+-----------------------------------
+Green-for-calls and red-for-puts is the market's own language; changing it
+would make the tool harder to read, not easier. But it is also precisely the
+pair that separates worst under protanopia (measured CVD dE 6.5 - inside the
+warn band). Hence the rule: **wherever calls and puts appear in the same chart,
+a second channel is mandatory alongside colour** - marker shape, or line dash.
+Colour alone never carries identity.
 
-Palette CBOE-style validator se paas ki gayi hai is surface (SURFACE_1) par:
-lightness band, chroma floor, CVD separation, normal-vision floor, aur contrast.
+The palette was validated against this surface (SURFACE_1) with a CBOE-style
+checker: lightness band, chroma floor, CVD separation, normal-vision floor and
+contrast.
 """
 
 from __future__ import annotations
@@ -44,16 +45,16 @@ from __future__ import annotations
 # Surfaces & ink
 # --------------------------------------------------------------------------
 
-SURFACE_0 = "#0d0d0c"      # page plane — sabse peeche
+SURFACE_0 = "#0d0d0c"      # page plane - furthest back
 SURFACE_1 = "#12120f"      # cards, chart surface
 SURFACE_2 = "#1a1a17"      # raised: sidebar, table header, hover
 SURFACE_3 = "#232320"      # input fields, chips
 
 INK_1 = "#ffffff"          # primary text, headline numbers
-INK_2 = "#c3c2b7"          # secondary text, spot/reference lines
+INK_2 = "#c3c2b7"          # secondary text, spot / reference lines
 INK_3 = "#898781"          # muted: axis labels, captions, units
 
-GRID = "#26262a"           # hairline grid — ek shade surface se upar
+GRID = "#26262a"           # hairline grid - one shade above the surface
 AXIS = "#383835"           # baseline / axis rule
 BORDER = "rgba(255,255,255,0.10)"
 BORDER_STRONG = "rgba(255,255,255,0.18)"
@@ -73,7 +74,7 @@ FILL_SERIES_1 = "rgba(57,135,229,0.18)"
 FILL_BAND = "rgba(57,135,229,0.13)"    # shaded range (delta band, IV band)
 
 # --------------------------------------------------------------------------
-# Status — sirf badges, gates aur pass/fail encoding. Kabhi series nahi.
+# Status - badges, gates and pass/fail encoding only. Never a series.
 # --------------------------------------------------------------------------
 
 STATUS_GOOD = "#0ca30c"
@@ -101,12 +102,12 @@ RADIUS_SM = "6px"
 
 
 def _css() -> str:
-    """Poore app ki CSS. Tokens se banti hai, taaki rang ek hi jagah badle.
+    """The whole app's CSS, built from the tokens so colour changes in one place.
 
-    Selectors jaan-boojh kar `data-testid` par hain, generated class names par
-    nahi — wo Streamlit ke har release mein badal jaate hain. Aur har rule
-    additive hai: koi selector miss ho jaaye to page phir bhi kaam karta hai,
-    bas thoda kam sundar dikhta hai.
+    Selectors deliberately target `data-testid` rather than generated class
+    names, which change with every Streamlit release. Every rule is additive:
+    if a selector stops matching, the page still works, it just looks a little
+    plainer.
     """
     return f"""
 <style>
@@ -127,10 +128,9 @@ def _css() -> str:
 
   .stApp {{ background: {SURFACE_0}; }}
 
-  /* Content ko saans lene ki jagah, par trading tool ki density bani rahe.
-     padding-top itna hai ki app bar Streamlit ke fixed toolbar (Deploy button
-     wali patti) ke neeche se shuru ho - warna heading uske peeche chali jaati
-     hai. */
+  /* Room to breathe, while keeping a trading tool's density.
+     padding-top clears Streamlit's fixed toolbar (the strip holding the Deploy
+     button) so the app bar starts below it instead of behind it. */
   .block-container {{
       padding-top: 3.2rem;
       padding-bottom: 3rem;
@@ -173,8 +173,8 @@ def _css() -> str:
       text-transform: uppercase; color: {INK_3};
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }}
-  /* Headline numbers proportional figures mein — tabular sirf un columns ke
-     liye hai jinhe vertically align hona hai. */
+  /* Headline numbers use proportional figures - tabular is reserved for
+     columns that must align vertically. */
   .mmc-stat-value {{
       font-size: 1.32rem; font-weight: 620; color: {INK_1};
       margin-top: 0.18rem; line-height: 1.2;
@@ -229,8 +229,8 @@ def _css() -> str:
       text-transform: uppercase; color: {INK_3};
   }}
   .mmc-hero-badge {{ margin-left: auto; }}
-  /* Hero figure proportional figures mein rehta hai - tabular sirf un
-     columns ke liye hai jinhe vertically align hona hai. */
+  /* The hero figure keeps proportional figures - tabular is reserved for
+     columns that must align vertically. */
   .mmc-hero-value {{
       font-size: 2.9rem; font-weight: 660; color: {INK_1};
       line-height: 1.05; margin: 0.3rem 0 0.15rem 0;
@@ -277,9 +277,9 @@ def _css() -> str:
 
   /* ---------------- Tables ---------------- */
 
-  /* Yahi wo ek line hai jo option chain ko padhne layak banati hai: bina
-     tabular figures ke har column ke digits apni marzi se hilte hain aur
-     do keemtein aankh se compare karna namumkin ho jaata hai. */
+  /* This single line is what makes an option chain readable: without tabular
+     figures each column's digits shift between rows, and comparing two prices
+     by eye becomes impossible. */
   [data-testid="stDataFrame"], [data-testid="stDataFrame"] * {{
       font-variant-numeric: tabular-nums;
       font-feature-settings: "tnum" 1;
@@ -290,8 +290,8 @@ def _css() -> str:
 
   /* ---------------- Sidebar ---------------- */
 
-  /* Built-in nav filename se label banata hai ("app", "1_Live_Chain"). Uski
-     jagah hum st.page_link se apna nav dete hain. */
+  /* The built-in nav derives labels from filenames ("app", "1_Live_Chain").
+     We hide it and build our own from st.page_link instead. */
   [data-testid="stSidebarNav"] {{ display: none; }}
 
   section[data-testid="stSidebar"] a[data-testid="stPageLink-NavLink"] {{
@@ -317,7 +317,7 @@ def _css() -> str:
   }}
   .mmc-side-head:first-of-type {{ margin-top: 0; }}
 
-  /* ---------------- Metrics (jahan native st.metric abhi bhi hai) --------- */
+  /* ---------------- Metrics (where native st.metric is still used) ------- */
 
   [data-testid="stMetric"] {{
       background: {SURFACE_1}; border: 1px solid {BORDER};
@@ -361,17 +361,19 @@ def _css() -> str:
 # --------------------------------------------------------------------------
 
 def inject(st) -> None:
-    """CSS ek baar per rerun daaliye. `st` inject hota hai taaki ye module
-    Streamlit import kiye bina test ho sake."""
+    """Inject the CSS once per rerun.
+
+    `st` is passed in so this module can be tested without importing Streamlit.
+    """
     st.markdown(_css(), unsafe_allow_html=True)
 
 
 def _esc(text) -> str:
-    """User ya API se aayi string ko markup mein daalne se pehle escape kijiye.
+    """Escape a string that came from a user or an API before it enters markup.
 
-    Ye components `unsafe_allow_html` par chalte hain, aur inme jaane wale
-    labels chain se aate hain (symbols, expiry names, error messages). Bina
-    escape kiye ek adhoora tag poora layout tod sakta hai.
+    These components render with `unsafe_allow_html`, and the labels they
+    receive come from the chain (symbols, expiry names, error messages). Without
+    escaping, a single unclosed tag can break the whole layout.
     """
     return (str(text).replace("&", "&amp;").replace("<", "&lt;")
             .replace(">", "&gt;").replace('"', "&quot;"))
@@ -386,12 +388,12 @@ def app_bar(icon: str, title: str, subtitle: str) -> str:
 
 
 def badge(text: str, tone: str = "neutral") -> str:
-    """Status badge — hamesha icon + label ke saath.
+    """A status badge - always icon plus label.
 
-    Rang akela status nahi uthaata: light surfaces par warning aur serious
-    3:1 contrast se neeche hote hain, aur colour-blind readers ke liye do
-    status rang paas paas aa sakte hain. Isliye har badge mein ek shape-dot
-    aur poora shabd dono hain.
+    Colour never carries status on its own: on light surfaces warning and
+    serious fall below 3:1 contrast, and two status colours can sit close
+    together for colour-blind readers. So every badge carries both a shape dot
+    and the full word.
     """
     colour, dot = _STATUS.get(tone, _STATUS["neutral"])
     return (f'<span class="mmc-badge" style="color:{colour}">'
@@ -400,7 +402,7 @@ def badge(text: str, tone: str = "neutral") -> str:
 
 def stat(label: str, value, sub: str = "", tone: str = "",
          accent: bool = False) -> str:
-    """Ek stat tile. tone: "" | "up" | "down"."""
+    """A single stat tile. tone: "" | "up" | "down"."""
     tone_cls = f" {tone}" if tone in ("up", "down") else ""
     accent_cls = " accent" if accent else ""
     sub_html = (f'<div class="mmc-stat-sub">{_esc(sub)}</div>') if sub else ""
@@ -411,10 +413,10 @@ def stat(label: str, value, sub: str = "", tone: str = "",
 
 
 def stat_row(tiles: list) -> str:
-    """`stat()` se bane tiles ko ek responsive grid mein rakhiye.
+    """Lay tiles built by `stat()` into a responsive grid.
 
-    Grid auto-fit hai, isliye chhoti screen par tiles apne aap wrap hote hain —
-    st.columns ki tarah squeeze hokar unreadable nahi hote.
+    The grid is auto-fit, so on a narrow screen the tiles wrap instead of being
+    squeezed into unreadable columns the way st.columns would.
     """
     return f'<div class="mmc-stats">{"".join(tiles)}</div>'
 
@@ -427,8 +429,10 @@ def section(title: str, note: str = "") -> str:
 
 
 def empty_state(icon: str, title: str, body: str) -> str:
-    """Khaali result ke liye. Ek bare warning se behtar isliye hai kyunki isme
-    hamesha likha hota hai ki ab karna kya hai."""
+    """For an empty result.
+
+    Better than a bare warning because it always says what to do next.
+    """
     return (f'<div class="mmc-empty">'
             f'<div class="mmc-empty-icon">{_esc(icon)}</div>'
             f'<div class="mmc-empty-title">{_esc(title)}</div>'
@@ -438,12 +442,12 @@ def empty_state(icon: str, title: str, body: str) -> str:
 
 def hero(label: str, value, sub: str = "", badge_html: str = "",
          tone: str = "") -> str:
-    """Ek page ka sabse bada number, uske status ke saath.
+    """A page's largest number, shown with its status.
 
-    Ye tab lagta hai jab page ka poora matlab EK number hai (VIX jaisa) —
-    tab use stat tiles ki qatar mein chhupa dena uska kaam chheen leta hai.
-    Badge saath rehta hai taaki number aur uska matlab ek saath padhe jaayein,
-    do alag jagah nahi.
+    Used when a page's entire meaning is ONE number (the volatility index, for
+    example) - hiding that in a row of stat tiles strips it of its job. The
+    badge sits alongside so the number and its meaning read together rather
+    than in two separate places.
     """
     tone_cls = f" {tone}" if tone in ("up", "down") else ""
     badge_part = (f'<span class="mmc-hero-badge">{badge_html}</span>'
@@ -471,18 +475,18 @@ def side_head(text: str) -> str:
     return f'<div class="mmc-side-head">{_esc(text)}</div>'
 
 
-# Streamlit ke data grid ki naapein.
+# Streamlit's data grid metrics.
 _ROW_PX = 35
 _HEADER_PX = 40
 
 
 def table_height(n_rows: int, max_px: int = 460, min_px: int = 120) -> int:
-    """Table ki height rows ke hisaab se.
+    """Size a table to its row count.
 
-    Fixed height do tarah se kharab karti hai: kam rows par neeche bada khaali
-    grid chhodti hai (jaise ek tight delta band par do hi contracts bachein),
-    aur zyada rows par bhi utni hi rehti hai. Ye helper content tak badhti hai
-    aur phir cap par ruk kar scroll karne deti hai.
+    A fixed height fails in both directions: with few rows it leaves a large
+    empty grid below (a tight delta band might leave only two contracts), and
+    with many rows it stays just as short. This grows with the content, then
+    stops at a cap and lets the table scroll.
     """
     try:
         rows = max(0, int(n_rows))
@@ -492,7 +496,7 @@ def table_height(n_rows: int, max_px: int = 460, min_px: int = 120) -> int:
 
 
 def tone_for(value: float, good_when_positive: bool = True) -> str:
-    """Number ke sign se stat tile ka tone. NaN par koi tone nahi."""
+    """Derive a stat tile's tone from a number's sign. NaN gets no tone."""
     try:
         val = float(value)
     except (TypeError, ValueError):

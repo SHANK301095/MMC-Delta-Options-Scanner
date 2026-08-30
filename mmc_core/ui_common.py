@@ -11,18 +11,16 @@ Every page calls into this module so that:
 from __future__ import annotations
 
 import math
-import time
 from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
 
 from . import delta_api as api
-from . import options_math as om
 from . import fees as fx
+from . import options_math as om
 from . import settings_store as store
-from . import theme
-from . import url_state
+from . import theme, url_state
 from . import volatility as vx
 
 UTC = timezone.utc
@@ -55,13 +53,13 @@ DEFAULTS = {
 
 
 def _bootstrap_settings() -> None:
-    """Session ke shuru mein ek baar saved view ko session_state mein laiye.
+    """Load the saved view into session_state once per session.
 
-    Do source hain aur unki tarteeb maayne rakhti hai. URL pehle padha jaata
-    hai kyunki wo is browser ka apna hai aur usme woh view hai jo user ne
-    kholna chaha; local settings file uske baad, sirf un keys ke liye jo URL
-    mein aayi hi nahi. Ulta karne par ek shared link kholte hi machine ke
-    purane settings usse overwrite kar dete.
+    There are two sources and their order matters. The URL is read first,
+    because it belongs to this browser and holds the view the user asked to
+    open; the local settings file is applied afterwards, and only for keys the
+    URL did not supply. Reversing that would let a machine's stale settings
+    overwrite a shared link the moment it is opened.
     """
     if st.session_state.get("_mmc_bootstrapped"):
         return
@@ -79,7 +77,7 @@ def _bootstrap_settings() -> None:
                 continue
             st.session_state[key] = val
 
-    # URL jeetta hai — wo aakhir mein lagta hai.
+    # The URL wins, so it is applied last.
     for key, val in from_url.items():
         st.session_state[key] = val
 
@@ -87,11 +85,10 @@ def _bootstrap_settings() -> None:
 
 
 def sync_url() -> None:
-    """Maujooda view ko URL mein likh dijiye, taaki reload aur share dono chalein.
+    """Write the current view into the URL so reload and sharing both work.
 
-    Sirf tab likhta hai jab kuch sach mein badla ho — har rerun par query params
-    set karna browser history ko bhar deta hai aur back button bekaar ho jaata
-    hai.
+    Only writes when something has genuinely changed - setting query params on
+    every rerun floods the browser history and makes the back button useless.
     """
     state = {k: st.session_state.get(k) for k in
              ("underlying", "expiry_api_date", "price_mode", "usdinr",
@@ -124,13 +121,13 @@ def _ss(key):
 # --------------------------------------------------------------------------
 
 def _retry_button(key: str) -> None:
-    """Fail hone par ek asli raasta dijiye, sirf salaah nahi.
+    """Give the user a real way forward on failure, not just advice.
 
-    Pehle yahan likha tha "sidebar mein clear cache dabaiye" — lekin jab chain
-    load hi nahi hui to sidebar bana hi nahi hota. Isliye button yahin hona
-    chahiye, error ke saath.
+    This used to read "press Clear cache in the sidebar" - but when the chain
+    fails to load, the sidebar has not been drawn. So the button belongs right
+    here, next to the error.
     """
-    if st.button("🔄 Dobara koshish karein", key=key, type="primary"):
+    if st.button("🔄 Try again", key=key, type="primary"):
         st.cache_data.clear()
         st.rerun()
 
@@ -140,7 +137,7 @@ def load_products():
     try:
         return api.fetch_option_products()
     except api.DeltaApiError as exc:
-        st.error(f"**Contract list load nahi hui**\n\n{exc}")
+        st.error(f"**Could not load the contract list**\n\n{exc}")
         _retry_button("retry_products")
         return None
 
@@ -149,8 +146,8 @@ def load_products():
 # Sidebar
 # --------------------------------------------------------------------------
 
-# (script path, label, icon) — icons module cards se match karte hain, taaki
-# home page par jo dikha wahi sidebar mein pehchana jaaye.
+# (script path, label, icon) - the icons match the module cards, so what you
+# saw on the home page is recognisable in the sidebar.
 NAV = [
     ("app.py", "Home", "🏠"),
     ("pages/1_Live_Chain.py", "Live Chain", "📈"),
@@ -164,20 +161,20 @@ NAV = [
 
 
 def render_nav() -> None:
-    """Apna sidebar nav.
+    """Our own sidebar navigation.
 
-    Streamlit ka built-in nav labels filename se banata hai, isliye home page
-    "app" dikhta hai aur baaki "1_Live_Chain" jaise. CSS use chhupa deti hai
-    aur ye function poore naam aur wahi icons deta hai jo home page ke module
-    cards par hain.
+    Streamlit's built-in nav derives labels from filenames, so the home page
+    shows as "app" and the rest as "1_Live_Chain". CSS hides it, and this
+    function supplies proper names with the same icons used on the home page's
+    module cards.
     """
     st.sidebar.markdown(theme.side_head("Modules"), unsafe_allow_html=True)
     for path, label, icon in NAV:
         try:
             st.sidebar.page_link(path, label=label, icon=icon)
         except Exception:
-            # Page link ek naye Streamlit par hi milta hai; na mile to nav
-            # chhod dijiye - baaki app isse rukna nahi chahiye.
+            # page_link needs a recent Streamlit; if it is missing, skip the
+            # nav rather than letting the rest of the app stop.
             break
 
 
@@ -189,7 +186,7 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
 
     underlyings = api.list_underlyings(products)
     if not underlyings:
-        st.sidebar.error("Koi live underlying nahi mila.")
+        st.sidebar.error("No live underlying found.")
         st.stop()
 
     prev_u = _ss("underlying")
@@ -199,7 +196,7 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
 
     expiries = api.list_expiries(products, underlying)
     if not expiries:
-        st.sidebar.error(f"{underlying} ke liye koi future expiry live nahi hai.")
+        st.sidebar.error(f"No future expiry is live for {underlying}.")
         st.stop()
 
     labels = [e["label"] for e in expiries]
@@ -220,16 +217,17 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
         "Data refresh window (sec)",
         options=[5, 10, 15, 30, 60, 120],
         value=_ss("refresh_seconds"),
-        help="Isse zyada tez karne par Delta ka 5-minute rate-limit quota "
-             "jaldi khatam hoga. 15 sec safe default hai.",
+        help="Refreshing faster than this burns through Delta's 5-minute "
+             "rate-limit quota. 15 seconds is a safe default.",
     )
     st.session_state["refresh_seconds"] = refresh_seconds
 
     usdinr = st.sidebar.number_input(
         "USD → INR rate", min_value=50.0, max_value=150.0,
         value=float(_ss("usdinr")), step=0.25,
-        help="Delta ke saare numbers USD mein hain. ₹ column isi rate se banta hai. "
-             "Ye manual hai — koi extra API dependency nahi.",
+        help="Every Delta number is in USD; the rupee columns are derived from "
+             "this rate. It is entered manually, so there is no extra API "
+             "dependency.",
     )
     st.session_state["usdinr"] = usdinr
 
@@ -238,17 +236,17 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
     price_mode = st.sidebar.radio(
         "Price basis", PRICE_MODES, key="price_basis_pick",
         index=PRICE_MODES.index(_ss("price_mode")),
-        help="Realistic = kharidte waqt ASK dena padta hai, bechte waqt BID "
-             "milta hai. Mark price par koi fill nahi hota \u2014 usse nikala "
-             "gaya edge sirf kaagzi hota hai.",
+        help="Realistic means you pay the ASK when buying and receive the BID "
+             "when selling. Nothing fills at the mark price, so edge derived "
+             "from it exists only on paper.",
     )
     st.session_state["price_mode"] = price_mode
 
     # ---------------- Fees ----------------
     with st.sidebar.expander("\U0001f4b8 Fees (Delta India)"):
-        st.caption("Fee NOTIONAL par lagti hai, premium par nahi \u2014 lekin "
-                   "premium ka ek cap hai. Delta kabhi-kabhi ye numbers badalta "
-                   "hai, isliye sab editable rakhe hain.")
+        st.caption("Fees are charged on NOTIONAL, not on premium - but capped "
+                   "at a percentage of the premium. Delta changes these "
+                   "numbers from time to time, so all of them are editable.")
         fee_maker = st.number_input(
             "Maker fee (% of notional)", min_value=0.0, max_value=1.0,
             value=float(_ss("fee_maker_rate")) * 100.0, step=0.001, format="%.3f",
@@ -260,8 +258,8 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
         fee_cap = st.number_input(
             "Premium cap (% of premium)", min_value=0.0, max_value=100.0,
             value=float(_ss("fee_premium_cap")) * 100.0, step=0.5, format="%.2f",
-            help="Fee kabhi premium ke is percent se zyada nahi hogi. "
-                 "Sasti OTM options par yahi cap lagta hai.",
+            help="The fee never exceeds this percentage of the premium. On "
+                 "cheap OTM options this cap is what actually binds.",
         ) / 100.0
         fee_gst = st.number_input(
             "GST on fees (%)", min_value=0.0, max_value=50.0,
@@ -271,7 +269,7 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
                                   value=bool(_ss("fee_entry_maker")))
         exit_maker = st.checkbox(
             "Exit as Maker (limit order)", value=bool(_ss("fee_exit_maker")),
-            help="Default off \u2014 exit par aksar spread cross karna padta hai.")
+            help="Off by default - exiting usually means crossing the spread.")
 
     st.session_state["fee_maker_rate"] = fee_maker
     st.session_state["fee_taker_rate"] = fee_taker
@@ -291,23 +289,23 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
         risk_free = st.number_input(
             "Risk-free rate (annual %)", min_value=-5.0, max_value=25.0,
             value=float(_ss("risk_free")) * 100.0, step=0.25,
-            help="Crypto options ke liye 0% market convention hai. "
-                 "Bina wajah mat badlein.",
+            help="0% is the market convention for crypto options. Do not "
+                 "change it without a reason.",
         ) / 100.0
         st.session_state["risk_free"] = risk_free
 
         iv_scale_mode = st.radio(
             "IV units", IV_MODES, index=IV_MODES.index(_ss("iv_scale_mode")),
-            help="Auto khud check karta hai ki API ki IV 55.0 hai ya 0.55, "
-                 "mark price ko dono tarike se reprice karke.",
+            help="Auto determines whether the API sends IV as 55.0 or 0.55 by "
+                 "repricing the mark price both ways.",
         )
         st.session_state["iv_scale_mode"] = iv_scale_mode
 
         greeks_source = st.radio(
             "Greeks source", GREEK_MODES,
             index=GREEK_MODES.index(_ss("greeks_source")),
-            help="Auto = Delta ke greeks use karo agar wo hamare Black-Scholes "
-                 "se match karte hain, warna apne compute karo.",
+            help="Auto uses Delta's greeks when they agree with our own "
+                 "Black-Scholes, and computes them locally otherwise.",
         )
         st.session_state["greeks_source"] = greeks_source
 
@@ -315,8 +313,7 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
 
     auto_refresh = st.sidebar.checkbox(
         "\u23f1\ufe0f Auto-refresh", value=bool(_ss("auto_refresh")),
-        help="Har refresh window par page apne aap reload hoga. Note: refresh "
-             "ke beech widget click queue ho jaata hai, isliye thoda slow lagega.",
+        help="Reloads the page each time a new refresh window opens.",
     )
     st.session_state["auto_refresh"] = auto_refresh
 
@@ -331,9 +328,9 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
 
     col_c, col_d = st.sidebar.columns(2)
     with col_c:
-        # Save button sirf local run par. Shared deployment par wo aapka
-        # setting save nahi karta - wo SABKA setting badal deta hai, aur reboot
-        # par gayab bhi ho jaata hai. Wahan URL hi asli save hai.
+        # The Save button appears only on a local run. On a shared deployment
+        # it would not save your setting - it would change EVERYONE's, and the
+        # file would vanish on reboot. There, the URL is the real save.
         if store.is_enabled():
             if st.button("\U0001f4be Save", width="stretch"):
                 ok = store.save_settings({k: st.session_state.get(k)
@@ -341,7 +338,7 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
                 if ok:
                     st.sidebar.success("Settings save ho gayi.")
                 else:
-                    st.sidebar.error("Save nahi hui (write permission?).")
+                    st.sidebar.error("Save failed (write permission?).")
         else:
             st.caption("Bookmark = save")
     with col_d:
@@ -356,14 +353,14 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
 
     if not store.is_enabled():
         st.sidebar.caption(
-            "Aapka view URL mein hai — page reload karne par wahi wapas aayega, "
-            "aur wahi link kisi ko bhej dijiye to unhe bilkul yahi screen dikhegi."
+            "Your view lives in the URL - reloading the page brings it back, "
+            "and sending that link to someone shows them this exact screen."
         )
 
     st.sidebar.markdown(
         theme.badge("READ-ONLY BUILD", "good"), unsafe_allow_html=True)
-    st.sidebar.caption("Koi API key, secret ya order-placement code nahi — "
-                       "CI har push par ise verify karta hai.")
+    st.sidebar.caption("No API key, secret or order-placement code anywhere - "
+                       "CI verifies this on every push.")
 
     sync_url()
 
@@ -384,17 +381,17 @@ def render_global_sidebar(products: pd.DataFrame) -> dict:
 
 
 def maybe_auto_refresh(settings: dict) -> None:
-    """Page ke bilkul NEECHE call kijiye. Naya data aane par app rerun karta hai.
+    """Call at the very BOTTOM of a page. Reruns the app when new data arrives.
 
-    Pehle ye `time.sleep(interval)` karta tha. Wo do tarah se mehnga tha: har
-    viewer ka script thread poore interval ke liye soya rehta tha (deployed app
-    par chaar log auto-refresh on kar dein to server ka dum nikal jaata), aur
-    us dauran har click queue ho jaata tha — UI atka hua lagta tha.
+    This used to call `time.sleep(interval)`, which was costly twice over: each
+    viewer's script thread slept for the whole interval (four people with
+    auto-refresh on would exhaust a deployed server), and every click made
+    meanwhile was queued, so the UI felt stuck.
 
-    Ab ek chhota timer fragment chalta hai. Fragment apne aap re-run hota hai
-    bina main script ko roke, aur app ko sirf TAB rerun karta hai jab data ka
-    refresh window sach mein aage badh chuka ho. Isse na koi thread sota hai,
-    na hi ek hi data par bekaar rerun hote hain.
+    It is now a small timer fragment. The fragment reruns itself without
+    blocking the main script, and reruns the app ONLY when the data's refresh
+    window has genuinely rolled over. No thread sleeps, and no rerun happens on
+    data already on screen.
     """
     if not settings.get("auto_refresh"):
         return
@@ -402,11 +399,11 @@ def maybe_auto_refresh(settings: dict) -> None:
     interval = max(5, int(settings.get("refresh_seconds", 15)))
 
     if not hasattr(st, "fragment"):
-        # Bahut purane Streamlit par timer fragment nahi hai. Aisi soorat mein
-        # blocking sleep se behtar hai auto-refresh hi na chalana — user
-        # manually refresh kar sakta hai, aur server bacha rehta hai.
-        st.caption("⏱️ Auto-refresh ke liye naya Streamlit chahiye — "
-                   "abhi manually Refresh dabaiye.")
+        # Very old Streamlit has no timer fragment. There, declining to
+        # auto-refresh beats falling back to a blocking sleep: the user can
+        # refresh manually and the server stays healthy.
+        st.caption("⏱️ Auto-refresh needs a newer Streamlit - "
+                   "use the Refresh button for now.")
         return
 
     @st.fragment(run_every=interval)
@@ -415,7 +412,7 @@ def maybe_auto_refresh(settings: dict) -> None:
         rendered = st.session_state.get("_mmc_rendered_bucket")
         if rendered is not None and bucket != rendered:
             st.rerun(scope="app")
-        st.caption(f"⏱️ Auto-refresh ON · har {interval}s")
+        st.caption(f"⏱️ Auto-refresh ON · every {interval}s")
 
     _tick()
 
@@ -701,16 +698,15 @@ DELTA_BAND_OFF = (0.0, 100.0)
 
 
 def delta_band_mask(df: pd.DataFrame, delta_band) -> pd.Series:
-    """|Δ| × 100 ko ek band ke andar rakhne wala mask.
+    """A mask keeping |delta| x 100 inside a band.
 
-    Traders strike ko delta se chunte hain, strike price se nahi — "25 delta
-    put bech do" ek poora instruction hai. Isliye band ABSOLUTE delta par lagta
-    hai: 25 maangne par 0.25 delta call aur −0.25 delta put dono aane chahiye.
+    Traders pick a strike by delta, not by strike price - "sell the 25 delta
+    put" is a complete instruction. So the band applies to ABSOLUTE delta:
+    asking for 25 must return both the 0.25 delta call and the -0.25 delta put.
 
-    Band poora khula (0-100) ho to koi filter nahi lagta. Band set karne ka
-    matlab hai user ne delta se chunav kiya hai — to jis row ka delta hi
-    unknown hai use "shayad match karti hai" maan kar rakhna galat hai, wo
-    bahar jaati hai.
+    A fully open band (0-100) filters nothing. Setting a band means the user
+    has chosen by delta, so a row whose delta is unknown cannot be kept on the
+    assumption that it "might match" - it is excluded.
     """
     if delta_band is None or df.empty or "delta" not in df.columns:
         return pd.Series(True, index=df.index)
@@ -730,33 +726,36 @@ def delta_band_mask(df: pd.DataFrame, delta_band) -> pd.Series:
 # --------------------------------------------------------------------------
 
 def load_enriched_chain(products: pd.DataFrame, settings: dict):
-    """Fetch -> normalize -> calibrate -> enrich. Returns (df, context) or (None, None)."""
+    """Fetch, normalize, calibrate and enrich.
+
+    Returns (df, context), or (None, None) after showing an error.
+    """
     bucket = api.make_cache_bucket(settings["refresh_seconds"])
     try:
         raw = api.fetch_chain_raw(settings["underlying"],
                                   settings["expiry"]["api_date"], bucket)
     except api.DeltaApiError as exc:
-        st.error(f"**Live chain load nahi hui**\n\n{exc}")
+        st.error(f"**Could not load the live chain**\n\n{exc}")
         _retry_button("retry_chain")
         return None, None
 
     df = api.normalize_chain(raw, products)
     if df.empty:
-        st.warning("Is expiry par koi option ticker nahi mila. "
-                   "Dusri expiry select karke dekhiye.")
+        st.warning("No option tickers were returned for this expiry. "
+                   "Try selecting a different one.")
         return None, None
 
     now = datetime.now(UTC)
     spot = api.resolve_spot(df)
     if math.isnan(spot):
-        st.error("Spot price resolve nahi hui — chain ka data incomplete hai.")
+        st.error("Could not resolve the spot price - the chain data is incomplete.")
         return None, None
 
     contract_value = api.resolve_contract_value(df, settings["underlying"])
     calib = calibrate(df, spot, contract_value, now, settings)
     enriched = enrich_chain(df, spot, contract_value, now, settings, calib)
 
-    # Timer fragment ise padh kar decide karta hai ki naya data aaya ya nahi.
+    # The timer fragment reads this to decide whether new data has arrived.
     st.session_state["_mmc_rendered_bucket"] = bucket
 
     context = {
@@ -779,10 +778,10 @@ def render_context_header(settings: dict, context: dict, df: pd.DataFrame) -> No
     spot = context["spot"]
     seconds_left = om.seconds_to_expiry(context["now"], context["expiry_utc"])
 
-    # Countdown ko alag rang milta hai kyunki expiry ke aakhri ghanton mein
-    # baaki har number ka matlab badal jaata hai - decay tez, gamma khatarnak,
-    # spreads chaude. Wo halat headline par dikhni chahiye, diagnostics mein
-    # dhoondhni nahi padni chahiye.
+    # The countdown is toned separately because in an expiry's final hours
+    # every other number changes meaning - decay accelerates, gamma turns
+    # dangerous, spreads widen. That state belongs in the headline, not buried
+    # in diagnostics.
     urgent = 0 < seconds_left < 6 * 3600
 
     st.markdown(theme.stat_row([
@@ -809,9 +808,9 @@ def render_diagnostics(context: dict, df: pd.DataFrame, settings: dict) -> None:
 
         col1, col2 = st.columns(2)
         with col1:
-            verdict = ("API IV percent mein hai → ÷100 lagaya"
+            verdict = ("API sends IV in percent -> divided by 100"
                        if calib["iv_divisor"] == 100.0
-                       else "API IV already decimal hai → as-is")
+                       else "API IV is already decimal -> used as-is")
             st.write(f"- IV: **{verdict}**")
             if not math.isnan(iv_d.get("err_decimal", float("nan"))):
                 st.write(f"- Median reprice error — as-decimal: "
@@ -821,8 +820,9 @@ def render_diagnostics(context: dict, df: pd.DataFrame, settings: dict) -> None:
         with col2:
             st.write(f"- Greek basis detected: **{gk_d['basis']}** "
                      f"(median api/mmc ratio = `{gk_d['ratio']:.4g}`)")
-            st.write(f"- Greeks in use: **"
-                     f"{'Delta API' if calib['greeks_used'] == 'api' else 'MMC Black-Scholes'}**")
+            greeks_label = ("Delta API" if calib["greeks_used"] == "api"
+                            else "MMC Black-Scholes")
+            st.write(f"- Greeks in use: **{greeks_label}**")
             st.write(f"- Risk-free rate: `{settings['risk_free']*100:.2f}%`")
 
         st.markdown("---")
@@ -840,9 +840,9 @@ def render_diagnostics(context: dict, df: pd.DataFrame, settings: dict) -> None:
 
         if abs(iv_d.get("err_decimal", 0) - iv_d.get("err_percent", 0)) < 0.01 \
                 and iv_d.get("n", 0) > 0:
-            st.warning("IV auto-detect confident nahi hai (dono interpretations "
-                       "similar error de rahe hain). Sidebar → Advanced mein "
-                       "manually force kar sakte hain.")
+            st.warning("IV auto-detection is not confident - both "
+                       "interpretations give a similar error. You can force "
+                       "one under Sidebar → Advanced.")
 
         st.caption(f"Snapshot taken: {api.fmt_ist(context['now'])} · "
                    f"refresh window {settings['refresh_seconds']}s")
@@ -852,19 +852,19 @@ def render_liquidity_controls(prefix: str = "",
                               include_delta: bool = True) -> dict:
     """Liquidity filter widgets. Shared so every page filters identically.
 
-    include_delta=False jab page khud, apne upar, ek bada delta control dikha
-    raha ho — do jagah ek hi filter rakhna sirf confusion paida karta hai.
+    Pass include_delta=False when a page shows its own, larger delta control;
+    having the same filter in two places only causes confusion.
     """
     st.sidebar.markdown(theme.side_head("Liquidity Filter"),
                         unsafe_allow_html=True)
 
     require_two_sided = st.sidebar.checkbox(
-        "Sirf two-sided book (bid AND ask)", value=True, key=f"{prefix}_two_sided",
-        help="One-sided strike par aap realistically trade nahi kar sakte.")
+        "Two-sided book only (bid AND ask)", value=True, key=f"{prefix}_two_sided",
+        help="A one-sided strike cannot realistically be traded.")
     max_spread_pct = st.sidebar.slider(
         "Max bid-ask spread %", 1, 100, 25, key=f"{prefix}_spread",
-        help="Spread = (ask - bid) / mid. Delta India par 25% se upar "
-             "matlab practically dead strike.")
+        help="Spread = (ask - bid) / mid. On Delta India, above 25% means a "
+             "practically dead strike.")
     min_oi = st.sidebar.number_input(
         "Min Open Interest (contracts)", min_value=0, value=0, step=50,
         key=f"{prefix}_oi")
@@ -873,19 +873,19 @@ def render_liquidity_controls(prefix: str = "",
         key=f"{prefix}_vol")
     max_moneyness = st.sidebar.slider(
         "Strike range (± % from spot)", 1, 100, 20, key=f"{prefix}_mny",
-        help="Spot se kitne door tak ke strikes dikhane hain.")
+        help="How far from spot to show strikes.")
 
     if include_delta:
         st.sidebar.markdown(theme.side_head("Delta Band"),
                             unsafe_allow_html=True)
         band = st.sidebar.slider(
             "|Δ| × 100", 0, 100, (0, 100), key=f"{prefix}_delta_band",
-            help="Sirf is delta range ke options dikhaiye. 0-100 = filter off. "
-                 "Band ABSOLUTE delta par lagta hai, to 20-30 maangne par "
-                 "0.25 call aur −0.25 put dono aayenge.",
+            help="Show only options in this delta range. 0-100 turns the "
+                 "filter off. The band applies to ABSOLUTE delta, so asking "
+                 "for 20-30 returns both the 0.25 call and the -0.25 put.",
         )
         if tuple(float(x) for x in band) != DELTA_BAND_OFF:
-            st.sidebar.caption(f"Sirf {band[0]}Δ – {band[1]}Δ ke contracts")
+            st.sidebar.caption(f"Only {band[0]}Δ – {band[1]}Δ contracts")
     else:
         band = DELTA_BAND_OFF
 
@@ -900,17 +900,17 @@ def render_liquidity_controls(prefix: str = "",
 
 
 # --------------------------------------------------------------------------
-# Volatility index — chain se VIX-jaisa number
+# Volatility index — a VIX-style number built from the chain
 # --------------------------------------------------------------------------
 
 def chain_quotes(df: pd.DataFrame) -> tuple:
-    """Normalized chain ko volatility engine ki shakl mein badliye.
+    """Reshape a normalized chain into the form the volatility engine expects.
 
-    Returns (calls, puts) — dono {strike: {"bid", "ask"}}.
+    Returns (calls, puts), each shaped {strike: {"bid", "ask"}}.
 
-    Yahan mark price jaan-boojh kar nahi bheji jaati. VIX formula quoted
-    bid-ask midpoint par chalti hai; mark price exchange ka apna model output
-    hai, aur usse "model-free" index banaana apne aap mein virodhabhas hai.
+    The mark price is deliberately not passed through. The VIX formula runs on
+    quoted bid-ask midpoints; the mark price is the exchange's own model output,
+    and building a "model-free" index from it would be a contradiction.
     """
     calls, puts = {}, {}
     if df.empty:
@@ -927,16 +927,15 @@ def chain_quotes(df: pd.DataFrame) -> tuple:
 
 def load_volatility_index(products: pd.DataFrame, settings: dict,
                           now: datetime, max_fetch: int = 4) -> dict:
-    """Selected underlying ka VIX-style index, live chain se.
+    """Build the selected underlying's VIX-style index from the live chain.
 
-    Sirf un expiries ko fetch karta hai jo 30 din ke sabse kareeb hain — index
-    ko bas do chahiye jo 30 din ko bracket karein, aur baaki fetch karna Delta
-    ka rate-limit quota bina wajah kharch karna hai. Extra do fallback ke liye
-    hain, kyunki ek expiry ki chain itni patli ho sakti hai ki usse valid
-    variance nikle hi na.
+    Only fetches the expiries closest to 30 days - the index needs just two
+    that bracket 30 days, and fetching more spends Delta's rate-limit quota for
+    nothing. The extra two are fallbacks, because a single expiry's chain can
+    be too thin to yield a valid variance at all.
 
-    Returns volatility.volatility_index() ka output, plus "per_expiry" —
-    har fetch ki gayi expiry ka apna vol aur diagnostics.
+    Returns volatility.volatility_index()'s output plus "per_expiry": each
+    fetched expiry's own volatility and diagnostics.
     """
     t_target = vx.TARGET_DAYS / 365.0
     candidates = sorted(settings.get("expiries", []),
@@ -967,7 +966,7 @@ def load_volatility_index(products: pd.DataFrame, settings: dict,
 
         sub = api.normalize_chain(raw, products)
         if sub.empty:
-            entry["reason"] = "is expiry par koi ticker nahi mila"
+            entry["reason"] = "no tickers returned for this expiry"
             per_expiry.append(entry)
             continue
 

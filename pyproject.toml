@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mmc-delta-options-scanner"
+version = "2.1.0"
+description = "Read-only options scanner for Delta Exchange India BTC and ETH options"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+keywords = ["options", "trading", "volatility", "black-scholes", "delta-exchange"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+    "streamlit>=1.49",
+    "requests>=2.31",
+    "pandas>=2.0.0",
+    "numpy>=1.24",
+    "plotly>=5.18",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[tool.setuptools]
+packages = ["mmc_core"]
+
+# ---------------------------------------------------------------------------
+# Lint
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+extend-exclude = [".venv", "__pycache__"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    # Streamlit pages are scripts, not modules: imports and page_setup must run
+    # before any other Streamlit call, so module-level code follows imports.
+    "E402",
+    # The domain uses single-capital maths names (S, K, T) on purpose - they
+    # match the formulas they implement and the units contract in the README.
+    "E741",
+    # Assigning a lambda is clearer than a def for the one-line adapters used
+    # to monkeypatch API calls in tests.
+    "E731",
+    # This is a maths and markets UI, so the typography is deliberate: a real
+    # MINUS SIGN in "C - P = S - K", MULTIPLICATION SIGN in "|d| x 100", EN
+    # DASH in ranges, and Greek letters for the greeks. Flagging them as
+    # "ambiguous" is a false positive for this codebase.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # Plotly's own API is written with dict(...) throughout, and its docs use
+    # that form; matching it reads better here than dict literals.
+    "C408",
+    # The expiry-day greeks branch is a 2x2 table of cases. The suggested
+    # nested ternary states the same thing far less clearly.
+    "SIM108",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test bodies use long, deliberate assertion messages and fixture literals.
+"tests/*" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mmc_core"]
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q --strict-markers"
+filterwarnings = [
+    # Streamlit's AppTest runs pages outside a script-run context and warns
+    # about it on every call; that is expected in tests.
+    "ignore::DeprecationWarning:streamlit.*",
+]
