@@ -204,6 +204,34 @@ when a user opens it.
 
 CI runs the same checks on Python 3.10, 3.11 and 3.12.
 
+### Checking the live chain
+
+The test suite proves the arithmetic; it cannot prove that the **assumptions
+about Delta's payloads** still hold, because it never calls Delta. Those
+assumptions are the ones most likely to drift silently when the exchange
+changes something. `tools/live_check.py` runs the real chain through this
+project's own code and checks each of them:
+
+```bash
+python tools/live_check.py                  # BTC, nearest expiry
+python tools/live_check.py --underlying ETH
+python tools/live_check.py --all-expiries
+python tools/live_check.py --json report.json
+```
+
+It verifies that IV still arrives as a percent, that greeks are still per unit,
+that timestamps still decode from microseconds, that `contract_value` is still
+0.001 / 0.01, and that no market is crossed — then re-checks the derived numbers
+model-free, via put-call delta parity and put-call parity on the live quotes.
+
+Exit code is 0 when everything holds and 1 when a check fails. Warnings do not
+fail the run: they mark things worth a look (a thin chain, a non-30-day
+volatility basis) that are limits of the data rather than defects. Where the app
+already self-corrects — the runtime calibration catching a units change — the
+result is a warning, because the numbers stay right even though something moved.
+
+This reads the same public endpoints the app reads, and nothing else.
+
 ---
 
 ## What this tool deliberately does not do

@@ -339,11 +339,32 @@ exact second, not whole days — otherwise every number on expiry day is wrong.
 | `HTTP 403 - blocked by the CDN` | Turn off any VPN and retry |
 | The chain looks empty | The liquidity filter is too tight — raise the spread limit |
 | Delta Filter is empty | Either no contract is in that band, or all of them failed the liquidity filter — the page says which |
-| The numbers look odd | Open the Diagnostics expander and send a screenshot |
+| The numbers look odd | Open the Diagnostics expander and send a screenshot. For a full answer run `python tools/live_check.py` (below) |
 | Libraries won't install | Delete the `.venv` folder and run the launcher again |
 | Settings aren't remembered | Bookmark the URL — it carries your view. The Save button only appears on a local run |
 | Auto-refresh feels slow | Increase the refresh interval, or turn auto-refresh off |
 | Term structure is slow | Each expiry costs its own API call. Reduce the expiry-count slider |
+
+### Checking the numbers against the live chain
+
+If something on screen looks wrong and the Diagnostics expander does not settle
+it, this runs the real chain through the app's own code and checks every
+assumption it makes about Delta's data:
+
+```bash
+python tools/live_check.py
+```
+
+It prints a pass / warn / fail line per check and exits 0 when everything holds.
+A failure names exactly which assumption stopped being true — the IV units, the
+greek basis, the contract multiplier, the timestamp unit, a crossed market — so
+the answer is a line of output rather than a guess. Add `--underlying ETH` for
+ETH, `--all-expiries` to sweep every expiry, or `--json report.json` to save the
+whole thing to a file worth sharing.
+
+Warnings are not failures. A thin chain, or a volatility reading that is not on
+a 30-day basis, are limits of what the market is quoting today, and the tool
+says so rather than hiding it.
 
 ---
 
