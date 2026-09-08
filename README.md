@@ -95,7 +95,16 @@ from the mark price exists only on paper.
 Every burn figure is produced by **repricing** the option at a future timestamp.
 On expiry day, analytic theta and the real burn differ by more than 50%.
 
-**4. The volatility index is built from the chain, not from one strike.**
+**4. A single network blip does not fail the page.**
+Transient failures — a dropped connection, a 502 from Delta's edge — are
+retried with backoff. Failures that a retry cannot fix are not: a 429 means the
+scanner is already asking too often, so retrying it deepens the very problem it
+reports, and a CDN block or a malformed payload will be identical next time.
+The retry budget is on **wall time**, not just attempt count, because a read
+timeout costs 25 seconds and three of them back to back would leave the page
+spinning for over a minute.
+
+**5. The volatility index is built from the chain, not from one strike.**
 Delta publishes no India-VIX equivalent, and none is needed: a VIX is derived
 from the option chain itself. [`mmc_core/volatility.py`](mmc_core/volatility.py)
 applies CBOE's model-free variance formula — each OTM strike's quoted midpoint,
@@ -108,7 +117,7 @@ quietly downward (at 90 days, ±15% coverage reads 55% volatility as 43.5%). For
 a regime gate, hiding that would be dangerous: a low reading would be taken as
 "volatility is cheap" when the real cause was a small chain.
 
-**5. A delta band applies to absolute delta.**
+**6. A delta band applies to absolute delta.**
 Asking for 25 returns both the 0.25 call and the −0.25 put — that is the market
 convention. A contract whose delta is unknown is excluded, because once the
 selection is made by delta, "might match" is not an answer.

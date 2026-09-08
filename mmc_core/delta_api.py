@@ -42,44 +42,73 @@ HEADERS = {
 # (connect timeout, read timeout) in seconds
 TIMEOUT = (6, 25)
 
+# Retry policy for transient failures.
+#
+# A dropped connection or a 502 from Delta's edge is usually gone by the next
+# request, and failing the whole page for one blip is the wrong trade. But a
+# retry loop in front of a UI is a liability if it is unbounded: a read timeout
+# alone costs 25 seconds, so three of them back to back would leave the page
+# spinning for over a minute.
+#
+# The budget below is therefore on WALL TIME, not just attempt count. A retry
+# is only started if there is enough budget left to be worth it, which bounds
+# the worst case a user can actually sit through.
+MAX_ATTEMPTS = 3
+RETRY_BUDGET_SECONDS = 30.0
+RETRY_BACKOFF_SECONDS = (0.4, 1.2)
+
 IST = timezone(timedelta(hours=5, minutes=30))
 UTC = timezone.utc
+
+# Indirection so tests can drive the retry loop without really sleeping.
+_sleep = time.sleep
+_now = time.monotonic
 
 
 class DeltaApiError(RuntimeError):
     """Raised for any non-recoverable API problem, with a human-readable message."""
 
 
+class _Transient(Exception):
+    """Internal: a failure worth retrying, carrying the message to show if we stop."""
+
+    def __init__(self, message: str, cause: Exception | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.cause = cause
+
+
 # --------------------------------------------------------------------------
 # Low-level HTTP
 # --------------------------------------------------------------------------
 
-def _get(path: str, params: dict | None = None) -> dict:
-    """Single GET with explicit, readable failure messages.
+def _attempt(path: str, params: dict | None) -> dict:
+    """One GET, with every failure translated into plain language.
 
-    Every failure mode is translated into plain language because the person
-    running this scanner is a trader, not a backend engineer staring at a
-    raw requests traceback at 3 AM.
+    Raises _Transient for problems that a retry might fix, and DeltaApiError
+    for problems that it will not. That split is the whole retry policy: a
+    429 means we are already asking too often, so retrying makes it worse,
+    and a 403 or a malformed payload will be identical next time.
+
+    Messages are written for the person running this scanner, who is a trader
+    and not a backend engineer staring at a raw requests traceback at 3 AM.
     """
     url = BASE_URL + path
     try:
         resp = requests.get(url, params=params or {},
                             headers=HEADERS, timeout=TIMEOUT)
     except requests.exceptions.ConnectTimeout as exc:
-        raise DeltaApiError(
+        raise _Transient(
             "Could not connect to Delta (connect timeout). "
-            "Check your internet connection, or Delta may be down."
-        ) from exc
+            "Check your internet connection, or Delta may be down.", exc) from exc
     except requests.exceptions.ReadTimeout as exc:
-        raise DeltaApiError(
-            "Delta did not respond within 25 seconds (read timeout). "
-            "Increase the refresh interval and try again."
-        ) from exc
+        raise _Transient(
+            f"Delta did not respond within {TIMEOUT[1]} seconds (read timeout). "
+            "Increase the refresh interval and try again.", exc) from exc
     except requests.exceptions.ConnectionError as exc:
-        raise DeltaApiError(
+        raise _Transient(
             "Network error - could not reach api.india.delta.exchange. "
-            "Check your WiFi, VPN or firewall."
-        ) from exc
+            "Check your WiFi, VPN or firewall.", exc) from exc
 
     if resp.status_code == 429:
         reset_ms = resp.headers.get("X-RATE-LIMIT-RESET", "?")
@@ -94,10 +123,9 @@ def _get(path: str, params: dict | None = None) -> dict:
             "If you are running through a VPN or proxy, turn it off and retry."
         )
     if resp.status_code >= 500:
-        raise DeltaApiError(
+        raise _Transient(
             f"Delta server error (HTTP {resp.status_code}). "
-            "This is an issue on their side - try again shortly."
-        )
+            "This is an issue on their side - try again shortly.")
     if resp.status_code != 200:
         raise DeltaApiError(f"Unexpected HTTP {resp.status_code} from {path}")
 
@@ -112,6 +140,40 @@ def _get(path: str, params: dict | None = None) -> dict:
         raise DeltaApiError(f"Delta API returned an error: {code}")
 
     return data
+
+
+def _get(path: str, params: dict | None = None) -> dict:
+    """GET with bounded retries on transient failures.
+
+    Permanent failures (rate limit, CDN block, malformed payload, an error
+    the API itself reports) are raised on the first attempt: retrying them
+    wastes the user's time and, for a 429, actively makes things worse.
+    """
+    started = _now()
+    last: _Transient | None = None
+
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            return _attempt(path, params)
+        except _Transient as exc:
+            last = exc
+
+        if attempt == MAX_ATTEMPTS:
+            break
+
+        backoff = RETRY_BACKOFF_SECONDS[min(attempt - 1,
+                                            len(RETRY_BACKOFF_SECONDS) - 1)]
+        # Only start a retry we can afford to finish: the next attempt can
+        # itself burn a full read timeout, so charge that against the budget.
+        elapsed = _now() - started
+        if elapsed + backoff + TIMEOUT[1] > RETRY_BUDGET_SECONDS:
+            break
+        _sleep(backoff)
+
+    message = last.message if last else f"{path} failed."
+    if attempt > 1:
+        message = f"{message} (tried {attempt} times)"
+    raise DeltaApiError(message) from (last.cause if last else None)
 
 
 # --------------------------------------------------------------------------

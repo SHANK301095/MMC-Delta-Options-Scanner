@@ -28,7 +28,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+dev = ["pytest>=8.0", "pytest-timeout>=2.3", "pytest-cov>=5.0", "ruff>=0.6"]
 
 [tool.setuptools]
 packages = ["mmc_core"]
@@ -92,6 +92,13 @@ known-first-party = ["mmc_core"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-q --strict-markers"
+
+# No single test may run longer than this. A runaway loop is a real risk in
+# code that follows a pagination cursor or retries a request, and without a
+# cap such a bug does not fail the build - it stalls the runner until the job
+# times out with nothing useful to show. This turns that into an ordinary
+# failure that names the test.
+timeout = 60
 filterwarnings = [
     # Streamlit's AppTest runs pages outside a script-run context and warns
     # about it on every call; that is expected in tests.
