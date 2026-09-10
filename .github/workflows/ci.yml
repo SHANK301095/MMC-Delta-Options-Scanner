@@ -13,6 +13,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,6 +27,7 @@ jobs:
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -50,6 +52,12 @@ jobs:
 
       - name: Run tests
         run: python -m pytest tests/ -v
+
+      - name: Check coverage has not regressed
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m pytest tests/ -q \
+            --cov=mmc_core --cov-report=term-missing --cov-fail-under=85
 
       - name: Verify the app has no order-placement or API-key code
         run: python tests/check_read_only.py

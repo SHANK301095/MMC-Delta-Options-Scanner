@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
+import requests
 
 from mmc_core import delta_api as api
 
@@ -290,3 +291,422 @@ def test_list_underlyings_puts_btc_and_eth_first():
         "symbol": ["a", "b", "c", "d"],
     })
     assert api.list_underlyings(products)[:2] == ["BTC", "ETH"]
+
+
+# ================================================================== HTTP layer
+#
+# Nothing below touches the network: requests.get is replaced, and the retry
+# loop's sleep and clock are replaced too, so a test that exercises a 30-second
+# budget still runs in microseconds.
+
+
+class _FakeResponse:
+    """The slice of requests.Response that _attempt actually reads."""
+
+    def __init__(self, status_code=200, payload=None, headers=None,
+                 bad_json=False):
+        self.status_code = status_code
+        self._payload = payload if payload is not None else {"success": True,
+                                                             "result": []}
+        self.headers = headers or {}
+        self._bad_json = bad_json
+
+    def json(self):
+        if self._bad_json:
+            raise ValueError("not json")
+        return self._payload
+
+
+@pytest.fixture
+def no_sleep(monkeypatch):
+    """Run the retry loop on a fake clock; record what it would have slept."""
+    slept = []
+    clock = {"t": 0.0}
+
+    def fake_sleep(seconds):
+        slept.append(seconds)
+        clock["t"] += seconds
+
+    monkeypatch.setattr(api, "_sleep", fake_sleep)
+    monkeypatch.setattr(api, "_now", lambda: clock["t"])
+    return slept, clock
+
+
+def _responder(monkeypatch, *outcomes):
+    """Serve one outcome per call; an Exception instance is raised, else returned.
+
+    The last outcome repeats, so a test can say "fails forever" with one entry.
+    """
+    calls = []
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        calls.append({"url": url, "params": params})
+        item = outcomes[min(len(calls) - 1, len(outcomes) - 1)]
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    monkeypatch.setattr(api.requests, "get", fake_get)
+    return calls
+
+
+# ---------------------------------------------------------------- happy path
+
+def test_get_returns_payload_and_hits_the_expected_url(monkeypatch, no_sleep):
+    calls = _responder(monkeypatch,
+                       _FakeResponse(payload={"success": True, "result": [1]}))
+
+    data = api._get("/v2/products", {"states": "live"})
+
+    assert data == {"success": True, "result": [1]}
+    assert calls[0]["url"] == api.BASE_URL + "/v2/products"
+    assert calls[0]["params"] == {"states": "live"}
+    assert len(calls) == 1, "a successful call must not be retried"
+
+
+# ------------------------------------------------------ permanent failures
+#
+# These must NOT be retried. Retrying a 429 in particular makes the very
+# problem it reports worse.
+
+def test_rate_limit_is_not_retried_and_says_when_the_quota_resets(monkeypatch,
+                                                                  no_sleep):
+    calls = _responder(monkeypatch, _FakeResponse(
+        status_code=429, headers={"X-RATE-LIMIT-RESET": "4200"}))
+
+    with pytest.raises(api.DeltaApiError) as err:
+        api._get("/v2/tickers")
+
+    assert len(calls) == 1, "retrying a rate limit would deepen the problem"
+    assert "429" in str(err.value)
+    assert "4200" in str(err.value)
+
+
+def test_cdn_block_is_not_retried(monkeypatch, no_sleep):
+    calls = _responder(monkeypatch, _FakeResponse(status_code=403))
+
+    with pytest.raises(api.DeltaApiError, match="403"):
+        api._get("/v2/products")
+
+    assert len(calls) == 1
+
+
+def test_unexpected_status_is_not_retried(monkeypatch, no_sleep):
+    calls = _responder(monkeypatch, _FakeResponse(status_code=418))
+
+    with pytest.raises(api.DeltaApiError, match="418"):
+        api._get("/v2/products")
+
+    assert len(calls) == 1
+
+
+def test_malformed_json_is_not_retried(monkeypatch, no_sleep):
+    calls = _responder(monkeypatch, _FakeResponse(bad_json=True))
+
+    with pytest.raises(api.DeltaApiError, match="valid JSON"):
+        api._get("/v2/products")
+
+    assert len(calls) == 1
+
+
+def test_api_level_error_surfaces_delta_s_own_code(monkeypatch, no_sleep):
+    calls = _responder(monkeypatch, _FakeResponse(
+        payload={"success": False, "error": {"code": "bad_symbol"}}))
+
+    with pytest.raises(api.DeltaApiError, match="bad_symbol"):
+        api._get("/v2/tickers")
+
+    assert len(calls) == 1
+
+
+def test_api_level_error_handles_a_non_dict_error_field(monkeypatch, no_sleep):
+    _responder(monkeypatch,
+               _FakeResponse(payload={"success": False, "error": "boom"}))
+
+    with pytest.raises(api.DeltaApiError, match="boom"):
+        api._get("/v2/tickers")
+
+
+# ------------------------------------------------------- transient failures
+
+@pytest.mark.parametrize("failure, expected", [
+    (requests.exceptions.ConnectTimeout(), "connect timeout"),
+    (requests.exceptions.ReadTimeout(), "read timeout"),
+    (requests.exceptions.ConnectionError(), "Network error"),
+])
+def test_network_failures_are_retried_then_reported_in_plain_language(
+        monkeypatch, no_sleep, failure, expected):
+    calls = _responder(monkeypatch, failure)
+
+    with pytest.raises(api.DeltaApiError) as err:
+        api._get("/v2/products")
+
+    assert len(calls) == api.MAX_ATTEMPTS
+    assert expected in str(err.value)
+    assert f"tried {api.MAX_ATTEMPTS} times" in str(err.value)
+
+
+def test_server_error_is_retried(monkeypatch, no_sleep):
+    calls = _responder(monkeypatch, _FakeResponse(status_code=503))
+
+    with pytest.raises(api.DeltaApiError, match="503"):
+        api._get("/v2/products")
+
+    assert len(calls) == api.MAX_ATTEMPTS
+
+
+def test_a_blip_recovers_without_the_caller_ever_seeing_it(monkeypatch,
+                                                           no_sleep):
+    """The whole point of the retry: one bad response must not fail the page."""
+    calls = _responder(
+        monkeypatch,
+        _FakeResponse(status_code=502),
+        _FakeResponse(payload={"success": True, "result": ["recovered"]}),
+    )
+
+    data = api._get("/v2/products")
+
+    assert data["result"] == ["recovered"]
+    assert len(calls) == 2
+
+
+def test_backoff_grows_between_attempts(monkeypatch, no_sleep):
+    slept, _ = no_sleep
+    _responder(monkeypatch, _FakeResponse(status_code=500))
+
+    with pytest.raises(api.DeltaApiError):
+        api._get("/v2/products")
+
+    assert slept == list(api.RETRY_BACKOFF_SECONDS[:api.MAX_ATTEMPTS - 1])
+    assert slept == sorted(slept), "backoff must not shrink"
+
+
+def test_retry_stops_when_the_time_budget_is_spent(monkeypatch, no_sleep):
+    """A slow failure must not be retried into a minute of dead UI.
+
+    Each attempt here burns a full read timeout, so the budget runs out before
+    the attempt cap does and the loop gives up early - by design.
+    """
+    slept, clock = no_sleep
+
+    def slow_get(url, params=None, headers=None, timeout=None):
+        clock["t"] += api.TIMEOUT[1]        # this attempt took a read timeout
+        raise requests.exceptions.ReadTimeout()
+
+    monkeypatch.setattr(api.requests, "get", slow_get)
+
+    with pytest.raises(api.DeltaApiError):
+        api._get("/v2/products")
+
+    assert clock["t"] <= api.RETRY_BUDGET_SECONDS + api.TIMEOUT[1], (
+        "the user must never wait longer than the budget plus one attempt")
+    assert slept == [], "no retry should have been started at all"
+
+
+# ============================================== product catalogue pagination
+#
+# Delta pages /v2/products with an opaque 'after' cursor. The loop that follows
+# it is the one place where a silently truncated catalogue would poison every
+# downstream number, so its cursor handling and its infinite-loop guard are
+# pinned down here. _get is replaced, so no network call happens.
+
+def _product(symbol, strike, call=True, underlying="BTC",
+             settlement="2030-01-31T12:00:00Z", contract_value="0.001"):
+    return {
+        "symbol": symbol,
+        "contract_type": "call_options" if call else "put_options",
+        "strike_price": str(strike),
+        "settlement_time": settlement,
+        "underlying_asset": {"symbol": underlying},
+        "contract_value": contract_value,
+        "tick_size": "0.1",
+    }
+
+
+def _pages(monkeypatch, *pages):
+    """Serve /v2/products pages in order; record the params of each call."""
+    seen = []
+
+    def fake_get(path, params=None):
+        seen.append(params or {})
+        return pages[min(len(seen) - 1, len(pages) - 1)]
+
+    monkeypatch.setattr(api, "_get", fake_get)
+    return seen
+
+
+def _fetch_products():
+    """Call through the cache decorator so each test starts cold."""
+    api.fetch_option_products.clear()
+    return api.fetch_option_products()
+
+
+def test_products_follows_the_after_cursor_across_pages(monkeypatch):
+    seen = _pages(
+        monkeypatch,
+        {"result": [_product("C-BTC-90000-310130", 90000)],
+         "meta": {"after": "cursor-1"}},
+        {"result": [_product("C-BTC-95000-310130", 95000)],
+         "meta": {"after": None}},
+    )
+
+    df = _fetch_products()
+
+    assert len(df) == 2
+    assert sorted(df["strike"]) == [90000.0, 95000.0]
+    assert "after" not in seen[0], "the first page must not send a cursor"
+    assert seen[1]["after"] == "cursor-1", "page 2 must send page 1's cursor"
+
+
+def test_products_stops_on_an_empty_page(monkeypatch):
+    seen = _pages(
+        monkeypatch,
+        {"result": [_product("C-BTC-90000-310130", 90000)],
+         "meta": {"after": "cursor-1"}},
+        {"result": [], "meta": {"after": "cursor-2"}},
+    )
+
+    df = _fetch_products()
+
+    assert len(df) == 1
+    assert len(seen) == 2, "an empty page ends the walk even with a cursor"
+
+
+def test_products_cannot_loop_forever_on_a_repeating_cursor(monkeypatch):
+    """A server bug that always returns the same cursor must still terminate.
+
+    The fake server refuses to answer past a hard ceiling well above the page
+    cap. Without the cap this test fails on that refusal instead of hanging:
+    a test that detects a runaway loop by running forever is useless in CI,
+    because it burns the whole job timeout rather than reporting anything.
+    """
+    ceiling = 100
+    calls = {"n": 0}
+
+    def endless_get(path, params=None):
+        calls["n"] += 1
+        if calls["n"] > ceiling:
+            raise AssertionError(
+                f"fetch_option_products asked for more than {ceiling} pages - "
+                "the page cap that stops an endless cursor is gone")
+        return {"result": [_product("C-BTC-90000-310130", 90000)],
+                "meta": {"after": "same-cursor-every-time"}}
+
+    monkeypatch.setattr(api, "_get", endless_get)
+
+    df = _fetch_products()
+
+    assert calls["n"] == 40, "the page cap must stop an endless cursor"
+    assert len(df) == 1, "duplicate symbols collapse to one row"
+
+
+def test_products_skips_contracts_with_no_usable_expiry(monkeypatch):
+    """Without an expiry there is no time to expiry, so the row is useless."""
+    _pages(monkeypatch, {
+        "result": [
+            _product("C-BTC-90000-310130", 90000),
+            {"symbol": "JUNK-NO-EXPIRY", "contract_type": "call_options",
+             "strike_price": "1", "settlement_time": None,
+             "underlying_asset": {"symbol": "BTC"}},
+        ],
+        "meta": {"after": None},
+    })
+
+    df = _fetch_products()
+
+    assert list(df["symbol"]) == ["C-BTC-90000-310130"]
+
+
+def test_products_skips_entries_with_no_symbol(monkeypatch):
+    _pages(monkeypatch, {
+        "result": [_product("C-BTC-90000-310130", 90000), {"strike_price": "1"}],
+        "meta": {"after": None},
+    })
+
+    assert len(_fetch_products()) == 1
+
+
+def test_products_marks_puts_correctly(monkeypatch):
+    _pages(monkeypatch, {
+        "result": [_product("P-BTC-90000-310130", 90000, call=False)],
+        "meta": {"after": None},
+    })
+
+    df = _fetch_products()
+
+    assert bool(df.iloc[0]["is_call"]) is False
+
+
+def test_products_raises_a_readable_error_when_nothing_comes_back(monkeypatch):
+    _pages(monkeypatch, {"result": [], "meta": {}})
+
+    with pytest.raises(api.DeltaApiError, match="no live option contracts"):
+        _fetch_products()
+
+
+def test_products_requests_live_options_only(monkeypatch):
+    seen = _pages(monkeypatch, {
+        "result": [_product("C-BTC-90000-310130", 90000)],
+        "meta": {"after": None},
+    })
+
+    _fetch_products()
+
+    assert seen[0]["states"] == "live"
+    assert seen[0]["contract_types"] == "call_options,put_options"
+
+
+# ------------------------------------------------------------- chain tickers
+
+def test_chain_raw_asks_for_both_sides_of_one_expiry(monkeypatch):
+    seen = {}
+
+    def fake_get(path, params=None):
+        seen["path"] = path
+        seen["params"] = params
+        return {"result": [{"symbol": "C-BTC-90000-310130"}]}
+
+    monkeypatch.setattr(api, "_get", fake_get)
+    api.fetch_chain_raw.clear()
+
+    rows = api.fetch_chain_raw("BTC", "31-01-2030", 1)
+
+    assert rows == [{"symbol": "C-BTC-90000-310130"}]
+    assert seen["path"] == "/v2/tickers"
+    assert seen["params"]["underlying_asset_symbols"] == "BTC"
+    assert seen["params"]["expiry_date"] == "31-01-2030"
+    assert seen["params"]["contract_types"] == "call_options,put_options"
+
+
+def test_chain_raw_returns_an_empty_list_when_delta_sends_no_result(monkeypatch):
+    monkeypatch.setattr(api, "_get", lambda path, params=None: {"result": None})
+    api.fetch_chain_raw.clear()
+
+    assert api.fetch_chain_raw("BTC", "31-01-2030", 1) == []
+
+
+def test_cache_bucket_rolls_over_with_the_refresh_window(monkeypatch):
+    """The bucket is the cache key; it must change once per refresh window.
+
+    Windows are aligned to absolute time, not to the first call, so the clock
+    here starts exactly on a boundary. That alignment is deliberate: it means
+    two browser tabs opened seconds apart share a bucket and therefore share
+    one fetch, instead of each keeping its own offset schedule and doubling
+    the request rate against Delta's quota.
+    """
+    window = 15
+    fake = {"t": float(window * 67)}        # exactly on a boundary
+    monkeypatch.setattr(api.time, "time", lambda: fake["t"])
+
+    first = api.make_cache_bucket(window)
+
+    fake["t"] += window - 1
+    assert api.make_cache_bucket(window) == first, "same window, same bucket"
+
+    fake["t"] += 2
+    assert api.make_cache_bucket(window) == first + 1, "next window, next bucket"
+
+
+def test_cache_bucket_never_divides_by_zero(monkeypatch):
+    """A refresh interval of 0 must clamp, not raise."""
+    assert isinstance(api.make_cache_bucket(0), int)

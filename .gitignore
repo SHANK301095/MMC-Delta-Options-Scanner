@@ -27,3 +27,12 @@ mmc_settings.json.tmp
 Thumbs.db
 .idea/
 .vscode/
+
+# Coverage artefacts (the CI coverage gate writes these)
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging output
+build/
+dist/

@@ -322,6 +322,18 @@ Delta's quota is 10,000 weight per rolling five-minute window. At the default
 15-second refresh the scanner uses roughly 5% of it. Do not set it to 5 seconds
 without a reason.
 
+### Transient failures are retried for you
+
+A dropped connection or a brief server error is retried automatically with a
+short backoff, so a one-off blip never reaches the screen. When a message does
+appear it says how many attempts were made.
+
+Two things are deliberately **not** retried. A rate limit (HTTP 429) means the
+scanner is already asking too often, so retrying would make it worse — raise
+the refresh interval instead. A CDN block (HTTP 403) or a malformed response
+will be identical on a second attempt, so it is reported immediately rather
+than after a delay.
+
 ### Expiry time
 
 Delta India options expire at **17:30 IST = 12:00 UTC**. The scanner uses that
@@ -335,7 +347,7 @@ exact second, not whole days — otherwise every number on expiry day is wrong.
 |---|---|
 | `Python not found` | Python isn't installed, or PATH wasn't ticked. Reinstall |
 | `Rate limit hit (HTTP 429)` | Set the refresh interval to 30 or 60 seconds |
-| `Network error` | Check your internet, VPN or firewall |
+| `Network error` | Already retried 3 times before showing this — check your internet, VPN or firewall |
 | `HTTP 403 - blocked by the CDN` | Turn off any VPN and retry |
 | The chain looks empty | The liquidity filter is too tight — raise the spread limit |
 | Delta Filter is empty | Either no contract is in that band, or all of them failed the liquidity filter — the page says which |
